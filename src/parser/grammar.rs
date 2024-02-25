@@ -325,7 +325,7 @@ fn del_stmt(input: &[Token]) -> ParseResult<Statement> {
         right(token(TT::KEYWORD, "del"), del_targets),
         lookahead(tok(TT::SEMI).or(tok(TT::NEWLINE))),
     )
-    .map(|t| Statement::Del(Box::new(t)))
+    .map(Statement::Del)
     .parse(input)
 }
 
@@ -502,10 +502,8 @@ fn block(input: &[Token]) -> ParseResult<Vec<Statement>> {
 
 // decorators: ('@' named_expression NEWLINE )+
 fn decorators(input: &[Token]) -> ParseResult<Vec<Decorator>> {
-    zero_or_more(
-        right(tok(TT::AT), left(named_expression, tok(TT::NEWLINE))).map(Decorator),
-    )
-    .parse(input)
+    zero_or_more(right(tok(TT::AT), left(named_expression, tok(TT::NEWLINE))).map(Decorator))
+        .parse(input)
 }
 
 // # Class definitions
@@ -1027,7 +1025,7 @@ fn finally_block(input: &[Token]) -> ParseResult<Vec<Statement>> {
 
 // match_stmt:
 //     | "match" subject_expr ':' NEWLINE INDENT case_block+ DEDENT
-fn match_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn match_stmt(_input: &[Token]) -> ParseResult<Statement> {
     todo!()
 }
 
@@ -1176,7 +1174,7 @@ fn match_stmt(input: &[Token]) -> ParseResult<Statement> {
 // type_alias:
 //     | "type" NAME [type_params] '=' expression
 
-fn type_alias(input: &[Token]) -> ParseResult<Statement> {
+fn type_alias(_input: &[Token]) -> ParseResult<Statement> {
     todo!()
     // pair(right(token(TT::SOFT_KEYWORD, "type"), name), pair(left(maybe(type_params), tok(TT::EQUAL)), expression)).parse(input)
 }
@@ -1205,7 +1203,17 @@ fn type_alias(input: &[Token]) -> ParseResult<Statement> {
 //     | expression ','
 //     | expression
 fn expressions(input: &[Token]) -> ParseResult<Vec<Expression>> {
-    todo!()
+    left(
+        pair(expression, one_or_more(right(tok(TT::COMMA), expression))),
+        maybe(tok(TT::COMMA)),
+    )
+    .map(|(u, mut v)| {
+        v.insert(0, u);
+        v
+    })
+    .or(left(expression, tok(TT::COMMA)).map(|e| vec![e]))
+    .or(expression.map(|e| vec![e]))
+    .parse(input)
 }
 
 // expression:
@@ -1911,32 +1919,32 @@ fn group(input: &[Token]) -> ParseResult<Expression> {
 // fstring_middle:
 //     | fstring_replacement_field
 //     | FSTRING_MIDDLE
-fn fstring_middle(input: &[Token]) -> ParseResult<PyString> {
+fn fstring_middle(_input: &[Token]) -> ParseResult<PyString> {
     todo!()
 }
 
 // fstring_replacement_field:
 //     | '{' (yield_expr | star_expressions) '='? [fstring_conversion] [fstring_full_format_spec] '}'
-fn fstring_replacement_field(input: &[Token]) -> ParseResult<Expression> {
+fn fstring_replacement_field(_input: &[Token]) -> ParseResult<Expression> {
     todo!()
 }
 
 // fstring_conversion:
 //     | "!" NAME
-fn fstring_conversion(input: &[Token]) -> ParseResult<Expression> {
+fn fstring_conversion(_input: &[Token]) -> ParseResult<Expression> {
     todo!()
 }
 
 // fstring_full_format_spec:
 //     | ':' fstring_format_spec*
-fn fstring_full_format_spec(input: &[Token]) -> ParseResult<Expression> {
+fn fstring_full_format_spec(_input: &[Token]) -> ParseResult<Expression> {
     todo!()
 }
 
 // fstring_format_spec:
 //     | FSTRING_MIDDLE
 //     | fstring_replacement_field
-fn fstring_format_spec(input: &[Token]) -> ParseResult<Expression> {
+fn fstring_format_spec(_input: &[Token]) -> ParseResult<Expression> {
     todo!()
 }
 
@@ -2145,7 +2153,7 @@ fn args(input: &[Token]) -> ParseResult<Arguments> {
     )
     .map(|(pos, kw)| Arguments {
         positional: pos.iter().cloned().collect(),
-        keyword: kw.iter().cloned().collect(),
+        keyword: kw.unwrap_or_default(),
     })
     .parse(input)
 }
@@ -2154,8 +2162,18 @@ fn args(input: &[Token]) -> ParseResult<Arguments> {
 //     | ','.kwarg_or_starred+ ',' ','.kwarg_or_double_starred+
 //     | ','.kwarg_or_starred+
 //     | ','.kwarg_or_double_starred+
-fn kwargs(input: &[Token]) -> ParseResult<Expression> {
-    todo!()
+fn kwargs(input: &[Token]) -> ParseResult<Vec<Expression>> {
+    pair(
+        left(sep_by(kwarg_or_starred, TT::COMMA), tok(TT::COMMA)),
+        sep_by(kwarg_or_double_starred, TT::COMMA),
+    )
+    .map(|(mut u, v)| {
+        u.extend(v);
+        u
+    })
+    .or(sep_by(kwarg_or_starred, TT::COMMA))
+    .or(sep_by(kwarg_or_double_starred, TT::COMMA))
+    .parse(input)
 }
 
 // starred_expression:
@@ -2169,14 +2187,14 @@ fn starred_expression(input: &[Token]) -> ParseResult<Expression> {
 // kwarg_or_starred:
 //     | NAME '=' expression
 //     | starred_expression
-fn kwarg_or_starred(input: &[Token]) -> ParseResult<Expression> {
+fn kwarg_or_starred(_input: &[Token]) -> ParseResult<Expression> {
     todo!()
 }
 
 // kwarg_or_double_starred:
 //     | NAME '=' expression
 //     | '**' expression
-fn kwarg_or_double_starred(input: &[Token]) -> ParseResult<Expression> {
+fn kwarg_or_double_starred(_input: &[Token]) -> ParseResult<Expression> {
     todo!()
 }
 
@@ -2195,15 +2213,24 @@ fn star_targets(input: &[Token]) -> ParseResult<Vec<Expression>> {
 }
 
 // star_targets_list_seq: ','.star_target+ [',']
-fn star_targets_list_seq(input: &[Token]) -> ParseResult<Expression> {
-    todo!()
+fn star_targets_list_seq(input: &[Token]) -> ParseResult<Vec<Expression>> {
+    left(sep_by(star_target, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
 // star_targets_tuple_seq:
 //     | star_target (',' star_target )+ [',']
 //     | star_target ','
-fn star_targets_tuple_seq(input: &[Token]) -> ParseResult<Expression> {
-    todo!()
+fn star_targets_tuple_seq(input: &[Token]) -> ParseResult<Vec<Expression>> {
+    left(
+        pair(star_target, one_or_more(right(tok(TT::COMMA), star_target))),
+        maybe(tok(TT::COMMA)),
+    )
+    .map(|(u, mut v)| {
+        v.insert(0, u);
+        v
+    })
+    .or(left(star_target, tok(TT::COMMA)).map(|u| vec![u]))
+    .parse(input)
 }
 
 // star_target:
@@ -2234,13 +2261,15 @@ fn star_atom(input: &[Token]) -> ParseResult<Expression> {
             tok(TT::RPAR),
         ))
         .or(left(
-            right(tok(TT::LPAR), star_targets_tuple_seq),
+            right(tok(TT::LPAR), maybe(star_targets_tuple_seq)),
             tok(TT::RPAR),
-        ))
+        )
+        .map(|v| Expression::Tuple(v.unwrap_or_default())))
         .or(left(
-            right(tok(TT::LPAR), star_targets_list_seq),
-            tok(TT::RPAR),
-        ))
+            right(tok(TT::LSQB), maybe(star_targets_list_seq)),
+            tok(TT::RSQB),
+        )
+        .map(|v| Expression::List(v.unwrap_or_default())))
         .parse(input)
 }
 
@@ -2334,16 +2363,17 @@ fn t_lookahead(input: &[Token]) -> ParseResult<Token> {
 // # --------------------------
 
 // del_targets: ','.del_target+ [',']
-fn del_targets(input: &[Token]) -> ParseResult<Expression> {
-    todo!()
+fn del_targets(input: &[Token]) -> ParseResult<Vec<Expression>> {
+    left(sep_by(del_target, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
 // del_target:
-//     | t_primary '.' NAME !t_lookahead
-//     | t_primary '[' slices ']' !t_lookahead
+//     | t_primary !t_lookahead
 //     | del_t_atom
 fn del_target(input: &[Token]) -> ParseResult<Expression> {
-    todo!()
+    left(t_primary, not(t_lookahead))
+        .or(del_t_atom)
+        .parse(input)
 }
 
 // del_t_atom:
@@ -2352,7 +2382,17 @@ fn del_target(input: &[Token]) -> ParseResult<Expression> {
 //     | '(' [del_targets] ')'
 //     | '[' [del_targets] ']'
 fn del_t_atom(input: &[Token]) -> ParseResult<Expression> {
-    todo!()
+    name.map(Expression::Name)
+        .or(left(right(tok(TT::LPAR), del_target), tok(TT::RPAR)))
+        .or(
+            left(right(tok(TT::LPAR), maybe(del_targets)), tok(TT::RPAR))
+                .map(|v| Expression::Tuple(v.unwrap_or_default())),
+        )
+        .or(
+            left(right(tok(TT::LSQB), maybe(del_targets)), tok(TT::RSQB))
+                .map(|v| Expression::List(v.unwrap_or_default())),
+        )
+        .parse(input)
 }
 
 // # TYPING ELEMENTS

@@ -35,7 +35,7 @@ pub(crate) enum Statement {
         Option<Vec<Expression>>, // rhs
         Option<Box<Expression>>, // type
     ),
-    Del(Box<Expression>),
+    Del(Vec<Expression>),
     Yield(Box<Expression>),
     Assert(Box<Expression>, Option<Box<Expression>>),
     Global(Vec<Name>),
