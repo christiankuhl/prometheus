@@ -4,12 +4,15 @@ use parser::{parse, ParseResult};
 
 fn main() {
     let tokens = tokenize("tests/test.py");
+    for token in tokens.iter() {
+        println!("{:}", token);
+    }
     let statements = parse(&tokens);
     match statements {
         ParseResult::Ok((statements, rest)) => {
-            println!("Parsed result:");
+            println!("\nParsed result:");
             for statement in statements.iter() {
-                println!("{:?}", statement);
+                println!("\n{:?}", statement);
             }
             if !rest.is_empty() {
                 println!("Unparsed rest:");

@@ -422,7 +422,6 @@ impl Tokenizer {
                             TokenType::DEDENT
                         };
                         self.indent = m.end();
-                        // println!("=> {}", self.indent);
                         self.current.lexeme = m.as_str().to_string();
                         self.end = m.end();
                         self.current.span = Span::new(lineno, self.start, lineno, self.end);

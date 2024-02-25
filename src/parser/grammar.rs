@@ -411,7 +411,11 @@ fn import_from(input: &[Token]) -> ParseResult<Import> {
     )
     .map(|(n, t)| ((n, vec![]), t)))
     .map(|((rel_level, path), items)| Import {
-        module: Module { rel_level, path },
+        module: Module {
+            rel_level,
+            path,
+            alias: None,
+        },
         items,
     })
     .parse(input)
@@ -427,9 +431,9 @@ fn import_from_targets(input: &[Token]) -> ParseResult<Vec<ImportItem>> {
         pair(maybe(tok(TT::COMMA)), tok(TT::RPAR)),
     )
     .or(left(import_from_as_names, not(tok(TT::COMMA))))
-    .or(tok(TT::STAR).map(|t| {
+    .or(tok(TT::STAR).map(|_| {
         vec![ImportItem {
-            name: t.into(),
+            name: vec![],
             alias: None,
         }]
     }))
@@ -446,25 +450,36 @@ fn import_from_as_names(input: &[Token]) -> ParseResult<Vec<ImportItem>> {
 //     | NAME ['as' NAME ]
 fn import_from_as_name(input: &[Token]) -> ParseResult<ImportItem> {
     pair(name, maybe(right(token(TT::KEYWORD, "as"), name)))
-        .map(|(name, alias)| ImportItem { name, alias })
+        .map(|(n, alias)| ImportItem {
+            name: vec![n],
+            alias,
+        })
         .parse(input)
 }
 
 // dotted_as_names:
 //     | ','.dotted_as_name+
 fn dotted_as_names(input: &[Token]) -> ParseResult<Vec<Module>> {
-    todo!()
+    sep_by(dotted_as_name, TT::COMMA).parse(input)
 }
 
 // dotted_as_name:
 //     | dotted_name ['as' NAME ]
+fn dotted_as_name(input: &[Token]) -> ParseResult<Module> {
+    pair(dotted_name, maybe(right(token(TT::KEYWORD, "as"), name)))
+        .map(|(path, alias)| Module {
+            rel_level: 0,
+            path,
+            alias,
+        })
+        .parse(input)
+}
 
 // dotted_name:
 //     | dotted_name '.' NAME
 //     | NAME
-
 fn dotted_name(input: &[Token]) -> ParseResult<Vec<Name>> {
-    todo!()
+    sep_by(name, TT::DOT).parse(input)
 }
 
 // # COMPOUND STATEMENTS

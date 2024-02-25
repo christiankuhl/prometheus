@@ -301,6 +301,7 @@ impl From<Token> for Operator {
 pub(crate) struct Module {
     pub(super) rel_level: usize,
     pub(super) path: Vec<Name>,
+    pub(super) alias: Option<Name>,
 }
 
 #[derive(Debug, Clone)]
@@ -311,6 +312,6 @@ pub(crate) struct Import {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ImportItem {
-    pub(super) name: Name,
+    pub(super) name: Vec<Name>,     // convention: empty Vec serves as *
     pub(super) alias: Option<Name>,
 }
