@@ -1,3 +1,5 @@
+# A comment
+
 import numpy as np
 from .. import something
 from .test import foo as bar

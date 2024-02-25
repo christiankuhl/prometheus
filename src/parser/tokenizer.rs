@@ -367,7 +367,7 @@ struct Tokenizer {
     start: usize,
     end: usize,
     paren_lvl: isize,
-    indent: usize,
+    indent: Vec<usize>,
     in_string: bool,
     current_string: String,
     string_start: StringDelimiter,
@@ -384,16 +384,16 @@ impl Tokenizer {
             start: 0,
             end: 0,
             paren_lvl: 0,
-            indent: 0,
+            indent: vec![0],
             in_string: false,
             current_string: String::new(),
             string_start: StringDelimiter::None,
             tokens_added: 0,
         })
     }
-    fn tokenize(mut self, input: io::Lines<io::BufReader<File>>) -> Vec<Token> {
+    fn tokenize(mut self, input: io::Lines<io::BufReader<File>>) -> Result<Vec<Token>, String> {
         for (lineno, line) in input.flatten().enumerate() {
-            self.tokenize_line(line, lineno);
+            self.tokenize_line(line, lineno)?;
         }
         let lvl = self.tokens.iter().filter(|t| t.typ == TokenType::INDENT).count() - self.tokens.iter().filter(|t| t.typ == TokenType::DEDENT).count();
         let span = self.current.span;
@@ -401,9 +401,9 @@ impl Tokenizer {
             self.tokens.push(Token { typ: TokenType::DEDENT, span: span.clone(), lexeme: "".to_string() });
         }
         self.tokens.push(Token { typ: TokenType::ENDMARKER, span: span.clone(), lexeme: "".to_string() });
-        self.tokens
+        Ok(self.tokens)
     }
-    fn tokenize_line(&mut self, line: String, lineno: usize) {
+    fn tokenize_line(&mut self, line: String, lineno: usize) -> Result<(), String> {
         self.start = 0;
         self.end = 1;
         self.tokens_added = 0;
@@ -415,28 +415,43 @@ impl Tokenizer {
                 }
 
                 if let Some(m) = WHITESPACE.find(&line[self.start..]) {
-                    if self.start == 0 && m.end() != self.indent && self.paren_lvl == 0 {
-                        self.current.typ = if m.end() > self.indent {
-                            TokenType::INDENT
+                    let mut current_indent = *self.indent.last().unwrap();
+                    if self.start == 0 && m.end() != current_indent && self.paren_lvl == 0 {
+                        if m.end() > current_indent {
+                            self.current.typ = TokenType::INDENT;
+                            self.indent.push(m.end());
+                            self.current.lexeme = m.as_str().to_string();
+                            self.end = m.end();
+                            self.current.span = Span::new(lineno, self.start, lineno, self.end);
+                            self.push();
                         } else {
-                            TokenType::DEDENT
+                            while current_indent > m.end() {
+                                self.current.typ = TokenType::DEDENT;
+                                self.current.lexeme = "".to_string();
+                                self.end = m.end();
+                                self.current.span = Span::new(lineno, self.start, lineno, self.end);
+                                self.push();
+                                self.indent.pop().unwrap();
+                                current_indent = *self.indent.last().unwrap();
+                            }
+                            if current_indent < m.end() {
+                                return Err(format!("Parser error: indentation level of block starting on line {lineno} does not match any previous indentation level."))
+                            }
                         };
-                        self.indent = m.end();
-                        self.current.lexeme = m.as_str().to_string();
-                        self.end = m.end();
-                        self.current.span = Span::new(lineno, self.start, lineno, self.end);
-                        self.push();
                     } else {
                         self.advance(m.end() - m.start());
                     }
                     continue;
                 }
-                if self.start == 0 && self.indent > 0 {
-                    self.current.typ = TokenType::DEDENT;
-                    self.indent = 0;
-                    self.current.span = Span::new(lineno, 0, lineno, 0);
-                    self.end = 0;
-                    self.push();
+                if self.start == 0 && self.indent.len() > 0 {
+                    let dedents = self.indent.len() - 1;
+                    for _ in 0..dedents {
+                        self.current.typ = TokenType::DEDENT;
+                        self.current.span = Span::new(lineno, 0, lineno, 0);
+                        self.end = 0;
+                        self.push();
+                        self.indent.pop().unwrap();
+                    }
                 }
 
                 if self.find_by_regex(&KEYWORDS, TokenType::KEYWORD, &line, lineno) {
@@ -521,6 +536,7 @@ impl Tokenizer {
             };
             self.tokens.push(token);
         }
+        Ok(())
     }
 
     fn advance(&mut self, len: usize) {
@@ -556,15 +572,15 @@ impl Tokenizer {
     }
 }
 
-pub(crate) fn tokenize<P>(path: P) -> Vec<Token>
+pub(crate) fn tokenize<P>(path: P) -> Result<Vec<Token>, String>
 where
-    P: AsRef<Path>,
+    P: AsRef<Path> + std::fmt::Display,
 {
-    if let Ok(lines) = read_lines(path) {
+    if let Ok(lines) = read_lines(&path) {
         let tokenizer = Tokenizer::new().expect("Could not build tokenizer.");
-        tokenizer.tokenize(lines)
+        Ok(tokenizer.tokenize(lines)?)
     } else {
-        panic!("File not found!")
+        Err(format!("{} not found. No such file or directory.", &path))
     }
 }
 

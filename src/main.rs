@@ -2,8 +2,8 @@ mod parser;
 use parser::tokenizer::tokenize;
 use parser::{parse, ParseResult};
 
-fn main() {
-    let tokens = tokenize("tests/test.py");
+fn main() -> Result<(), String> {
+    let tokens = tokenize("tests/test.py")?;
     for token in tokens.iter() {
         println!("{:}", token);
     }
@@ -28,4 +28,5 @@ fn main() {
             }
         }
     };
+    Ok(())
 }
