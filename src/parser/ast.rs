@@ -179,10 +179,7 @@ pub(crate) enum IncompleteExpression {
 
 impl IncompleteExpression {
     pub(super) fn empty(&self) -> bool {
-        match self {
-            Self::Empty => true,
-            _ => false,
-        }
+        matches!(self, Self::Empty)
     }
 }
 

@@ -46,6 +46,7 @@ impl std::fmt::Display for Token {
 }
 
 #[allow(non_camel_case_types)]
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum TokenType {
     ENDMARKER,
@@ -251,7 +252,7 @@ macro_rules! maybe {
 const S_WHITESPACE: &str = r"^[ \f\t]+";
 const S_COMMENT: &str = r"^#[^\r\n]*";
 const S_NEWLINE_OR_WHITESPACE: &str = concat!(r"\\\r?\n", S_WHITESPACE);
-const S_IGNORE: &str = &concat!(
+const S_IGNORE: &str = concat!(
     S_WHITESPACE,
     any!(S_NEWLINE_OR_WHITESPACE),
     maybe!(S_COMMENT)
@@ -278,9 +279,9 @@ const S_NUMBER: &str = concat!(r"^", group!(S_IMAGNUMBER, S_FLOATNUMBER, S_INTNU
 const S_KEYWORDS: &str = r"^(\bFalse\b|\bNone\b|\bTrue\b|\band\b|\bas\b|\bassert\b|\basync\b|\bawait\b|\bbreak\b|\bclass\b|\bcontinue\b|\bdef\b|\bdel\b|\belif\b|\belse\b|\bexcept\b|\bfinally\b|\bfor\b|\bfrom\b|\bglobal\b|\bif\b|\bimport\b|\bin\b|\bis\b|\blambda\b|\bnonlocal\b|\bnot\b|\bor\b|\bpass\b|\braise\b|\breturn\b|\btry\b|\bwhile\b|\bwith\b|\byield\b)";
 const S_SOFT_KEYWORDS: &str = r"^(match\b|\bcase\b|\btype\b|\b_\b)";
 const S_STRING_START: &str = r#"^("{1}|"{3}|'{1}|'''{3})"#;
-const S_SINGLE_QUOTE_END: &str = r#"[^\\]'{1}"#;
+const S_SINGLE_QUOTE_END: &str = r"[^\\]'{1}";
 const S_DOUBLE_QUOTE_END: &str = r#"[^\\]"{1}"#;
-const S_SINGLE_QUOTE_MULTILINE_END: &str = r#"[^\\]'{3}"#;
+const S_SINGLE_QUOTE_MULTILINE_END: &str = r"[^\\]'{3}";
 const S_DOUBLE_QUOTE_MULTILINE_END: &str = r#"[^\\]"{3}"#;
 
 static WHITESPACE: Lazy<Regex> =
@@ -338,24 +339,22 @@ impl StringDelimiter {
         let double = m.as_str().chars().nth(0) == Some('\"');
         if m.end() == 1 {
             if double {
-                return Self::DoubleQuotes;
+                Self::DoubleQuotes
             } else {
-                return Self::SingleQuotes;
+                Self::SingleQuotes
             }
+        } else if double {
+            Self::MultilineDoubleQuotes
         } else {
-            if double {
-                return Self::MultilineDoubleQuotes;
-            } else {
-                return Self::MultilineSingleQuotes;
-            }
+            Self::MultilineSingleQuotes
         }
     }
     fn matching_end(&self) -> &'static Regex {
         match self {
-            Self::SingleQuotes => &*SINGLE_QUOTE,
-            Self::MultilineSingleQuotes => &*MULTILINE_SINGLE_QUOTE,
-            Self::DoubleQuotes => &*DOUBLE_QUOTE,
-            Self::MultilineDoubleQuotes => &*MULTILINE_DOUBLE_QUOTE,
+            Self::SingleQuotes => &SINGLE_QUOTE,
+            Self::MultilineSingleQuotes => &MULTILINE_SINGLE_QUOTE,
+            Self::DoubleQuotes => &DOUBLE_QUOTE,
+            Self::MultilineDoubleQuotes => &MULTILINE_DOUBLE_QUOTE,
             Self::None => unreachable!(),
         }
     }
@@ -443,7 +442,7 @@ impl Tokenizer {
                     }
                     continue;
                 }
-                if self.start == 0 && self.indent.len() > 0 {
+                if self.start == 0 && !self.indent.is_empty() {
                     let dedents = self.indent.len() - 1;
                     for _ in 0..dedents {
                         self.current.typ = TokenType::DEDENT;

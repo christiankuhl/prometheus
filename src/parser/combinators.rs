@@ -205,7 +205,7 @@ pub(super) fn maybe<'a, R>(parser: impl Parser<'a, R>) -> impl Parser<'a, Option
 pub(super) fn tok(
     expected_type: TokenType,
 ) -> impl Fn(&[Token]) -> ParseResult<Token> {
-    move |input| match input.iter().nth(0) {
+    move |input| match input.get(0) {
         Some(token) if token.typ == expected_type => ParseResult::Ok((token.clone(), &input[1..])),
         _ => ParseResult::Err,
     }
@@ -215,7 +215,7 @@ pub(super) fn token(
     expected_type: TokenType,
     expected_lexeme: &'static str,
 ) -> impl Fn(&[Token]) -> ParseResult<()> {
-    move |input| match input.iter().nth(0) {
+    move |input| match input.get(0) {
         Some(token) if token.typ == expected_type && token.lexeme.as_str() == expected_lexeme => {
             ParseResult::Ok(((), &input[1..]))
         }

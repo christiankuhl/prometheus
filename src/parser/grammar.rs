@@ -66,7 +66,7 @@ pub(crate) fn parse(input: &[Token]) -> ParseResult<Vec<Statement>> {
 // file: [statements] ENDMARKER
 fn file_(input: &[Token]) -> ParseResult<Vec<Statement>> {
     left(maybe(statements), tok(TT::ENDMARKER))
-        .map(|v| v.unwrap_or(vec![]))
+        .map(|v| v.unwrap_or_default())
         .parse(input)
 }
 
@@ -166,7 +166,7 @@ fn simple_stmts(input: &[Token]) -> ParseResult<Vec<Statement>> {
 fn simple_stmt(input: &[Token]) -> ParseResult<Statement> {
     assignment
         // .or(type_alias)
-        .or(star_expressions.map(|v| Statement::Expressions(v)))
+        .or(star_expressions.map(Statement::Expressions))
         .or(return_stmt)
         .or(import_stmt)
         .or(raise_stmt)
@@ -287,7 +287,7 @@ fn augassign(input: &[Token]) -> ParseResult<Token> {
 //     | 'return' [star_expressions]
 fn return_stmt(input: &[Token]) -> ParseResult<Statement> {
     right(token(TT::KEYWORD, "return"), star_expressions)
-        .map(|v| Statement::Return(v))
+        .map(Statement::Return)
         .parse(input)
 }
 
@@ -299,7 +299,7 @@ fn raise_stmt(input: &[Token]) -> ParseResult<Statement> {
         right(token(TT::KEYWORD, "raise"), expression),
         maybe(right(token(TT::KEYWORD, "from"), expression)),
     )
-    .map(|(e, f)| Statement::Raise(Some(Box::new(e)), f.map(|x| Box::new(x))))
+    .map(|(e, f)| Statement::Raise(Some(Box::new(e)), f.map(Box::new)))
     .or(token(TT::KEYWORD, "raise").map(|_| Statement::Raise(None, None)))
     .parse(input)
 }
@@ -307,14 +307,14 @@ fn raise_stmt(input: &[Token]) -> ParseResult<Statement> {
 // global_stmt: 'global' ','.NAME+
 fn global_stmt(input: &[Token]) -> ParseResult<Statement> {
     right(token(TT::KEYWORD, "global"), sep_by(name, TT::COMMA))
-        .map(|n| Statement::Global(n))
+        .map(Statement::Global)
         .parse(input)
 }
 
 // nonlocal_stmt: 'nonlocal' ','.NAME+
 fn nonlocal_stmt(input: &[Token]) -> ParseResult<Statement> {
     right(token(TT::KEYWORD, "nonlocal"), sep_by(name, TT::COMMA))
-        .map(|n| Statement::Nonlocal(n))
+        .map(Statement::Nonlocal)
         .parse(input)
 }
 
@@ -342,7 +342,7 @@ fn assert_stmt(input: &[Token]) -> ParseResult<Statement> {
         token(TT::KEYWORD, "assert"),
         pair(expression, maybe(right(tok(TT::COMMA), expression))),
     )
-    .map(|(e, m)| Statement::Assert(Box::new(e), m.map(|e| Box::new(e))))
+    .map(|(e, m)| Statement::Assert(Box::new(e), m.map(Box::new)))
     .parse(input)
 }
 
@@ -352,7 +352,7 @@ fn assert_stmt(input: &[Token]) -> ParseResult<Statement> {
 fn import_stmt(input: &[Token]) -> ParseResult<Statement> {
     import_name
         .or(import_from.map(|t| vec![t]))
-        .map(|v| Statement::Import(v))
+        .map(Statement::Import)
         .parse(input)
 }
 
@@ -503,7 +503,7 @@ fn block(input: &[Token]) -> ParseResult<Vec<Statement>> {
 // decorators: ('@' named_expression NEWLINE )+
 fn decorators(input: &[Token]) -> ParseResult<Vec<Decorator>> {
     zero_or_more(
-        right(tok(TT::AT), left(named_expression, tok(TT::NEWLINE))).map(|expr| Decorator(expr)),
+        right(tok(TT::AT), left(named_expression, tok(TT::NEWLINE))).map(Decorator),
     )
     .parse(input)
 }
@@ -521,7 +521,7 @@ fn class_def(input: &[Token]) -> ParseResult<Statement> {
             c
         })
         .or(class_def_raw)
-        .map(|c| Statement::ClassDefinition(c))
+        .map(Statement::ClassDefinition)
         .parse(input)
 }
 
@@ -1235,9 +1235,9 @@ fn yield_expr(input: &[Token]) -> ParseResult<Expression> {
     .map(|e| Expression::YieldFrom(Box::new(e)))
     .or(right(
         token(TT::KEYWORD, "yield"),
-        maybe(star_expressions).map(|v| v.unwrap_or(vec![])),
+        maybe(star_expressions).map(|v| v.unwrap_or_default()),
     )
-    .map(|e| Expression::Yield(e)))
+    .map(Expression::Yield))
     .parse(input)
 }
 
@@ -1281,7 +1281,7 @@ fn star_named_expression(input: &[Token]) -> ParseResult<Expression> {
 //     | NAME ':=' ~ expression
 fn assignment_expression(input: &[Token]) -> ParseResult<Expression> {
     pair(
-        left(name.map(|n| Expression::Name(n)), tok(TT::COLONEQUAL)),
+        left(name.map(Expression::Name), tok(TT::COLONEQUAL)),
         expression,
     )
     .map(|(l, r)| Expression::Walrus(Box::new(l), Box::new(r)))
@@ -1831,12 +1831,12 @@ fn slice(input: &[Token]) -> ParseResult<Slice> {
 //     | (dict | set | dictcomp | setcomp)
 //     | '...'
 fn atom(input: &[Token]) -> ParseResult<Expression> {
-    name.map(|n| Expression::Name(n))
+    name.map(Expression::Name)
         .or(token(TT::KEYWORD, "True").map(|_| Expression::True))
         .or(token(TT::KEYWORD, "False").map(|_| Expression::False))
         .or(token(TT::KEYWORD, "None").map(|_| Expression::None))
         .or(strings)
-        .or(number.map(|n| Expression::Number(n)))
+        .or(number.map(Expression::Number))
         .or(tuple.or(group).or(genexp))
         .or(list.or(listcomp))
         .or(dict.or(set).or(dictcomp).or(setcomp))
@@ -1959,7 +1959,7 @@ fn string(input: &[Token]) -> ParseResult<Token> {
 fn strings(input: &[Token]) -> ParseResult<Expression> {
     one_or_more(string.map(|t| PyString::Literal(t.lexeme)))
         // .or(fstring))
-        .map(|v| Expression::Strings(v))
+        .map(Expression::Strings)
         .parse(input)
 }
 
@@ -1970,7 +1970,7 @@ fn list(input: &[Token]) -> ParseResult<Expression> {
         right(tok(TT::LSQB), maybe(star_named_expressions)),
         tok(TT::RSQB),
     )
-    .map(|e| Expression::List(e.unwrap_or(vec![])))
+    .map(|e| Expression::List(e.unwrap_or_default()))
     .parse(input)
 }
 
@@ -2004,7 +2004,7 @@ fn set(input: &[Token]) -> ParseResult<Expression> {
         right(tok(TT::LBRACE), star_named_expressions),
         tok(TT::RBRACE),
     )
-    .map(|e| Expression::Set(e))
+    .map(Expression::Set)
     .parse(input)
 }
 
@@ -2018,7 +2018,7 @@ fn dict(input: &[Token]) -> ParseResult<Expression> {
         right(tok(TT::LBRACE), maybe(double_starred_kvpairs)),
         tok(TT::RBRACE),
     )
-    .map(|e| Expression::Dict(e.unwrap_or(vec![])))
+    .map(|e| Expression::Dict(e.unwrap_or_default()))
     .parse(input)
 }
 
@@ -2144,8 +2144,8 @@ fn args(input: &[Token]) -> ParseResult<Arguments> {
         maybe(right(tok(TT::COMMA), kwargs)),
     )
     .map(|(pos, kw)| Arguments {
-        positional: pos.iter().map(|x| x.clone().into()).collect(),
-        keyword: kw.iter().map(|x| x.clone().into()).collect(),
+        positional: pos.iter().cloned().collect(),
+        keyword: kw.iter().cloned().collect(),
     })
     .parse(input)
 }
@@ -2228,7 +2228,7 @@ fn target_with_star_atom(input: &[Token]) -> ParseResult<Expression> {
 //     | '(' [star_targets_tuple_seq] ')'
 //     | '[' [star_targets_list_seq] ']'
 fn star_atom(input: &[Token]) -> ParseResult<Expression> {
-    name.map(|n| Expression::Name(n))
+    name.map(Expression::Name)
         .or(left(
             right(tok(TT::LPAR), target_with_star_atom),
             tok(TT::RPAR),
@@ -2250,7 +2250,7 @@ fn star_atom(input: &[Token]) -> ParseResult<Expression> {
 //     | '(' single_target ')'
 fn single_target(input: &[Token]) -> ParseResult<Expression> {
     single_subscript_attribute_target
-        .or(name.map(|n| Expression::Name(n)))
+        .or(name.map(Expression::Name))
         .or(left(right(tok(TT::LPAR), single_target), tok(TT::RPAR)))
         .parse(input)
 }
