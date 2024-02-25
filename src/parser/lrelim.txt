@@ -1,0 +1,15 @@
+
+// t_primary_tail:
+//     | '.' NAME t_primary_tail
+//     | '[' slices ']' t_primary_tail
+//     | genexp t_primary_tail
+//     | '(' [arguments] ')' t_primary_tail
+
+// t_primary:
+//     | atom t_primary_tail
+
+// bitwise_or_tail:
+//     | '|' bitwise_xor bitwise_xor_tail
+
+// bitwise_or:
+//     | bitwise_xor bitwise_or_tail
