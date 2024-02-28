@@ -1,12 +1,17 @@
 mod parser;
 use parser::tokenizer::tokenize;
 use parser::{parse, ParseResult};
+mod debug;
 
 fn main() -> Result<(), String> {
-    let tokens = tokenize("tests/test.py")?;
-    for token in tokens.iter() {
-        println!("{:}", token);
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 2 {
+        return Err("No input file provided".to_string())
     }
+    let tokens = tokenize(&args[1])?;
+    // for token in tokens.iter() {
+    //     println!("{:}", token);
+    // }
     let statements = parse(&tokens);
     match statements {
         ParseResult::Ok((statements, rest)) => {

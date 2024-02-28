@@ -144,7 +144,7 @@ pub(crate) enum Expression {
     ExceptBlock(Option<Box<Expression>>, Option<Name>, Vec<Statement>, bool),
     Walrus(Box<Expression>, Box<Expression>),
     Ternary(Box<Expression>, Box<Expression>, Box<Expression>),
-    Comparison(Box<Expression>, Vec<Expression>),
+    Comparison(Box<Expression>, Vec<(Operator, Expression)>),
     Strings(Vec<PyString>),
     Yield(Vec<Expression>),
     YieldFrom(Box<Expression>),
@@ -158,6 +158,7 @@ pub(crate) enum Expression {
     DictComprehension(Box<Expression>, Vec<Expression>),
     Set(Vec<Expression>),
     SetComprehension(Box<Expression>, Vec<Expression>),
+    KeywordArgument(Name, Box<Expression>),
     Name(Name),
     Number(Number),
     Ellipsis,
@@ -256,6 +257,16 @@ pub(crate) enum Operator {
     Modulo,
     Power,
     MatrixMul,
+    Is,
+    IsNot,
+    In,
+    NotIn,
+    Equal,
+    NotEqual,
+    LessThanEqual,
+    LessThan,
+    GreaterThanEqual,
+    GreaterThan,
 }
 
 impl From<Token> for Operator {
@@ -288,6 +299,12 @@ impl From<Token> for Operator {
             TT::DOUBLESTAREQUAL => Self::Power,
             TT::AT => Self::MatrixMul,
             TT::ATEQUAL => Self::MatrixMul,
+            TT::EQEQUAL => Self::Equal,
+            TT::NOTEQUAL => Self::NotEqual,
+            TT::LESSEQUAL => Self::LessThanEqual,
+            TT::LESS => Self::LessThan,
+            TT::GREATEREQUAL => Self::GreaterThanEqual,
+            TT::GREATER => Self::GreaterThan,
             _ => unreachable!(),
         }
     }

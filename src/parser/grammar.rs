@@ -500,7 +500,7 @@ fn block(input: &[Token]) -> ParseResult<Vec<Statement>> {
     .parse(input)
 }
 
-// decorators: ('@' named_expression NEWLINE )+
+// decorators: ('@' named_expression NEWLINE )*
 fn decorators(input: &[Token]) -> ParseResult<Vec<Decorator>> {
     zero_or_more(right(tok(TT::AT), left(named_expression, tok(TT::NEWLINE))).map(Decorator))
         .parse(input)
@@ -511,14 +511,12 @@ fn decorators(input: &[Token]) -> ParseResult<Vec<Decorator>> {
 
 // class_def:
 //     | decorators class_def_raw
-//     | class_def_raw
 fn class_def(input: &[Token]) -> ParseResult<Statement> {
     pair(decorators, class_def_raw)
         .map(|(d, mut c)| {
             c.decorators = d;
             c
         })
-        .or(class_def_raw)
         .map(Statement::ClassDefinition)
         .parse(input)
 }
@@ -548,7 +546,6 @@ fn class_def_raw(input: &[Token]) -> ParseResult<ClassDefinition> {
 
 // function_def:
 //     | decorators function_def_raw
-//     | function_def_raw
 fn function_def(input: &[Token]) -> ParseResult<Statement> {
     pair(decorators, function_def_raw)
         .map(|(dec, fun)| Statement::FunctionDeclaration(fun, dec))
@@ -836,15 +833,13 @@ fn default(input: &[Token]) -> ParseResult<Expression> {
 //     | 'if' named_expression ':' block [else_block]
 fn if_stmt(input: &[Token]) -> ParseResult<Statement> {
     pair(
-        right(token(TT::KEYWORD, "if"), named_expression),
-        right(tok(TT::COLON), pair(block, elif_stmt)),
+        pair(
+            right(token(TT::KEYWORD, "if"), named_expression),
+            right(tok(TT::COLON), block),
+        ),
+        elif_stmt.or(maybe(else_block).map(|e| (vec![], e))),
     )
-    .map(|(expr, (then, (elif, els)))| Statement::If(expr, then, elif, els))
-    .or(pair(
-        right(token(TT::KEYWORD, "if"), named_expression),
-        right(tok(TT::COLON), pair(block, maybe(else_block))),
-    )
-    .map(|(expr, (then, maybe_else))| Statement::If(expr, then, vec![], maybe_else)))
+    .map(|((expr, then), (elif, els))| Statement::If(expr, then, elif, els))
     .parse(input)
 }
 
@@ -878,7 +873,10 @@ fn else_block(input: &[Token]) -> ParseResult<Vec<Statement>> {
 
 fn while_stmt(input: &[Token]) -> ParseResult<Statement> {
     pair(
-        right(token(TT::KEYWORD, "while"), pair(named_expression, block)),
+        right(
+            token(TT::KEYWORD, "while"),
+            pair(left(named_expression, tok(TT::COLON)), block),
+        ),
         maybe(else_block),
     )
     .map(|((e, b), els)| Statement::While(Box::new(e), b, els))
@@ -934,15 +932,16 @@ fn with_stmt(input: &[Token]) -> ParseResult<Statement> {
 }
 
 // with_item:
-//     | expression 'as' star_target &(',' | ')' | ':')
-//     | expression
+//     | expression ['as' star_target &(',' | ')' | ':')]
 fn with_item(input: &[Token]) -> ParseResult<Expression> {
-    left(
-        pair(expression, right(token(TT::KEYWORD, "as"), star_target)),
-        lookahead(tok(TT::COMMA).or(tok(TT::RPAR)).or(tok(TT::COLON))),
+    pair(
+        expression,
+        maybe(left(
+            right(token(TT::KEYWORD, "as"), star_target),
+            lookahead(tok(TT::COMMA).or(tok(TT::RPAR)).or(tok(TT::COLON))),
+        )),
     )
-    .map(|(e, t)| Expression::WithItem(Box::new(e), Some(Box::new(t))))
-    .or(expression.map(|e| Expression::WithItem(Box::new(e), None)))
+    .map(|(e, t)| Expression::WithItem(Box::new(e), t.map(Box::new)))
     .parse(input)
 }
 
@@ -1203,17 +1202,7 @@ fn type_alias(_input: &[Token]) -> ParseResult<Statement> {
 //     | expression ','
 //     | expression
 fn expressions(input: &[Token]) -> ParseResult<Vec<Expression>> {
-    left(
-        pair(expression, one_or_more(right(tok(TT::COMMA), expression))),
-        maybe(tok(TT::COMMA)),
-    )
-    .map(|(u, mut v)| {
-        v.insert(0, u);
-        v
-    })
-    .or(left(expression, tok(TT::COMMA)).map(|e| vec![e]))
-    .or(expression.map(|e| vec![e]))
-    .parse(input)
+    left(sep_by(expression, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
 // expression:
@@ -1223,11 +1212,16 @@ fn expressions(input: &[Token]) -> ParseResult<Vec<Expression>> {
 // TODO: lambda
 fn expression(input: &[Token]) -> ParseResult<Expression> {
     pair(
-        left(disjunction, token(TT::KEYWORD, "if")),
-        pair(left(disjunction, token(TT::KEYWORD, "else")), expression),
+        disjunction,
+        maybe(pair(
+            right(token(TT::KEYWORD, "if"), disjunction),
+            right(token(TT::KEYWORD, "else"), expression),
+        )),
     )
-    .map(|(t, (c, e))| Expression::Ternary(Box::new(c), Box::new(t), Box::new(e)))
-    .or(disjunction)
+    .map(|(t, o)| match o {
+        Some((c, e)) => Expression::Ternary(Box::new(c), Box::new(t), Box::new(e)),
+        None => t,
+    })
     // .or(lambdef)
     .parse(input)
 }
@@ -1342,9 +1336,14 @@ fn inversion(input: &[Token]) -> ParseResult<Expression> {
 //     | bitwise_or compare_op_bitwise_or_pair+
 //     | bitwise_or
 fn comparison(input: &[Token]) -> ParseResult<Expression> {
-    pair(bitwise_or, one_or_more(compare_op_bitwise_or_pair))
-        .map(|(l, r)| Expression::Comparison(Box::new(l), r))
-        .or(bitwise_or)
+    pair(bitwise_or, zero_or_more(compare_op_bitwise_or_pair))
+        .map(|(l, r)| {
+            if r.is_empty() {
+                l
+            } else {
+                Expression::Comparison(Box::new(l), r)
+            }
+        })
         .parse(input)
 }
 
@@ -1359,7 +1358,7 @@ fn comparison(input: &[Token]) -> ParseResult<Expression> {
 //     | in_bitwise_or
 //     | isnot_bitwise_or
 //     | is_bitwise_or
-fn compare_op_bitwise_or_pair(input: &[Token]) -> ParseResult<Expression> {
+fn compare_op_bitwise_or_pair(input: &[Token]) -> ParseResult<(Operator, Expression)> {
     eq_bitwise_or
         .or(noteq_bitwise_or)
         .or(lte_bitwise_or)
@@ -1374,62 +1373,68 @@ fn compare_op_bitwise_or_pair(input: &[Token]) -> ParseResult<Expression> {
 }
 
 // eq_bitwise_or: '==' bitwise_or
-fn eq_bitwise_or(input: &[Token]) -> ParseResult<Expression> {
-    right(tok(TT::EQEQUAL), bitwise_or).parse(input)
+fn eq_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+    pair(tok(TT::EQEQUAL).map(Operator::from), bitwise_or).parse(input)
 }
 
 // noteq_bitwise_or:
 //     | ('!=' ) bitwise_or
-fn noteq_bitwise_or(input: &[Token]) -> ParseResult<Expression> {
-    right(tok(TT::NOTEQUAL), bitwise_or).parse(input)
+fn noteq_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+    pair(tok(TT::NOTEQUAL).map(Operator::from), bitwise_or).parse(input)
 }
 
 // lte_bitwise_or: '<=' bitwise_or
-fn lte_bitwise_or(input: &[Token]) -> ParseResult<Expression> {
-    right(tok(TT::LESSEQUAL), bitwise_or).parse(input)
+fn lte_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+    pair(tok(TT::LESSEQUAL).map(Operator::from), bitwise_or).parse(input)
 }
 
 // lt_bitwise_or: '<' bitwise_or
-fn lt_bitwise_or(input: &[Token]) -> ParseResult<Expression> {
-    right(tok(TT::LESS), bitwise_or).parse(input)
+fn lt_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+    pair(tok(TT::LESS).map(Operator::from), bitwise_or).parse(input)
 }
 
 // gte_bitwise_or: '>=' bitwise_or
-fn gte_bitwise_or(input: &[Token]) -> ParseResult<Expression> {
-    right(tok(TT::GREATEREQUAL), bitwise_or).parse(input)
+fn gte_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+    pair(tok(TT::GREATEREQUAL).map(Operator::from), bitwise_or).parse(input)
 }
 
 // gt_bitwise_or: '>' bitwise_or
-fn gt_bitwise_or(input: &[Token]) -> ParseResult<Expression> {
-    right(tok(TT::GREATER), bitwise_or).parse(input)
+fn gt_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+    pair(tok(TT::GREATER).map(Operator::from), bitwise_or).parse(input)
 }
 
 // notin_bitwise_or: 'not' 'in' bitwise_or
-fn notin_bitwise_or(input: &[Token]) -> ParseResult<Expression> {
+fn notin_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
     right(
         pair(token(TT::KEYWORD, "not"), token(TT::KEYWORD, "in")),
         bitwise_or,
     )
+    .map(|e| (Operator::NotIn, e))
     .parse(input)
 }
 
 // in_bitwise_or: 'in' bitwise_or
-fn in_bitwise_or(input: &[Token]) -> ParseResult<Expression> {
-    right(token(TT::KEYWORD, "in"), bitwise_or).parse(input)
+fn in_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+    right(token(TT::KEYWORD, "in"), bitwise_or)
+        .map(|e| (Operator::In, e))
+        .parse(input)
 }
 
 // isnot_bitwise_or: 'is' 'not' bitwise_or
-fn isnot_bitwise_or(input: &[Token]) -> ParseResult<Expression> {
+fn isnot_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
     right(
         pair(token(TT::KEYWORD, "is"), token(TT::KEYWORD, "not")),
         bitwise_or,
     )
+    .map(|e| (Operator::IsNot, e))
     .parse(input)
 }
 
 // is_bitwise_or: 'is' bitwise_or
-fn is_bitwise_or(input: &[Token]) -> ParseResult<Expression> {
-    right(token(TT::KEYWORD, "is"), bitwise_or).parse(input)
+fn is_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+    right(token(TT::KEYWORD, "is"), bitwise_or)
+        .map(|e| (Operator::Is, e))
+        .parse(input)
 }
 
 // # Bitwise operators
@@ -1459,12 +1464,12 @@ fn bitwise_or(input: &[Token]) -> ParseResult<Expression> {
                     IncompleteExpression::Empty => {
                         (current_expr, Box::new(IncompleteExpression::Empty))
                     }
-                    IncompleteExpression::BinaryOperation(_, ref expr, ref tail) => (
+                    IncompleteExpression::BinaryOperation(_, expr, tail) => (
                         Expression::BinaryOperation(
                             Operator::BitwiseOr,
-                            Box::new((current_expr, *expr.clone())),
+                            Box::new((current_expr, *expr)),
                         ),
-                        tail.clone(),
+                        tail,
                     ),
                     _ => unreachable!(),
                 };
@@ -1498,12 +1503,12 @@ fn bitwise_xor(input: &[Token]) -> ParseResult<Expression> {
                     IncompleteExpression::Empty => {
                         (current_expr, Box::new(IncompleteExpression::Empty))
                     }
-                    IncompleteExpression::BinaryOperation(_, ref expr, ref tail) => (
+                    IncompleteExpression::BinaryOperation(_, expr, tail) => (
                         Expression::BinaryOperation(
                             Operator::BitwiseXor,
-                            Box::new((current_expr, *expr.clone())),
+                            Box::new((current_expr, *expr)),
                         ),
-                        tail.clone(),
+                        tail,
                     ),
                     _ => unreachable!(),
                 };
@@ -1537,12 +1542,12 @@ fn bitwise_and(input: &[Token]) -> ParseResult<Expression> {
                     IncompleteExpression::Empty => {
                         (current_expr, Box::new(IncompleteExpression::Empty))
                     }
-                    IncompleteExpression::BinaryOperation(_, ref expr, ref tail) => (
+                    IncompleteExpression::BinaryOperation(_, expr, tail) => (
                         Expression::BinaryOperation(
                             Operator::BitwiseAnd,
-                            Box::new((current_expr, *expr.clone())),
+                            Box::new((current_expr, *expr)),
                         ),
-                        tail.clone(),
+                        tail,
                     ),
                     _ => unreachable!(),
                 };
@@ -1557,21 +1562,13 @@ fn bitwise_and(input: &[Token]) -> ParseResult<Expression> {
 //     | '>>' sum shiftexpr_tail
 //     | epsilon
 fn shift_expr_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
-    right(tok(TT::LEFTSHIFT), pair(sum, shift_expr_tail))
-        .map(|(e, t)| {
-            IncompleteExpression::BinaryOperation(Operator::LeftShift, Box::new(e), Box::new(t))
-        })
-        .or(
-            right(tok(TT::RIGHTSHIFT), pair(sum, shift_expr_tail)).map(|(e, t)| {
-                IncompleteExpression::BinaryOperation(
-                    Operator::RightShift,
-                    Box::new(e),
-                    Box::new(t),
-                )
-            }),
-        )
-        .or(epsilon.map(|_| IncompleteExpression::Empty))
-        .parse(input)
+    pair(
+        tok(TT::LEFTSHIFT).or(tok(TT::RIGHTSHIFT)),
+        pair(sum, shift_expr_tail),
+    )
+    .map(|(o, (e, t))| IncompleteExpression::BinaryOperation(o.into(), Box::new(e), Box::new(t)))
+    .or(epsilon.map(|_| IncompleteExpression::Empty))
+    .parse(input)
 }
 
 // shift_expr:
@@ -1586,9 +1583,9 @@ fn shift_expr(input: &[Token]) -> ParseResult<Expression> {
                     IncompleteExpression::Empty => {
                         (current_expr, Box::new(IncompleteExpression::Empty))
                     }
-                    IncompleteExpression::BinaryOperation(op, ref expr, ref tail) => (
-                        Expression::BinaryOperation(op, Box::new((current_expr, *expr.clone()))),
-                        tail.clone(),
+                    IncompleteExpression::BinaryOperation(op, expr, tail) => (
+                        Expression::BinaryOperation(op, Box::new((current_expr, *expr))),
+                        tail,
                     ),
                     _ => unreachable!(),
                 };
@@ -1606,13 +1603,10 @@ fn shift_expr(input: &[Token]) -> ParseResult<Expression> {
 //     | '-' term sum_tail
 //     | epsilon
 fn sum_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
-    right(tok(TT::PLUS), pair(term, sum_tail))
-        .map(|(e, t)| {
-            IncompleteExpression::BinaryOperation(Operator::Plus, Box::new(e), Box::new(t))
+    pair(tok(TT::PLUS).or(tok(TT::MINUS)), pair(term, sum_tail))
+        .map(|(o, (e, t))| {
+            IncompleteExpression::BinaryOperation(o.into(), Box::new(e), Box::new(t))
         })
-        .or(right(tok(TT::MINUS), pair(term, sum_tail)).map(|(e, t)| {
-            IncompleteExpression::BinaryOperation(Operator::Minus, Box::new(e), Box::new(t))
-        }))
         .or(epsilon.map(|_| IncompleteExpression::Empty))
         .parse(input)
 }
@@ -1629,9 +1623,9 @@ fn sum(input: &[Token]) -> ParseResult<Expression> {
                     IncompleteExpression::Empty => {
                         (current_expr, Box::new(IncompleteExpression::Empty))
                     }
-                    IncompleteExpression::BinaryOperation(op, ref expr, ref tail) => (
-                        Expression::BinaryOperation(op, Box::new((current_expr, *expr.clone()))),
-                        tail.clone(),
+                    IncompleteExpression::BinaryOperation(op, expr, tail) => (
+                        Expression::BinaryOperation(op, Box::new((current_expr, *expr))),
+                        tail,
                     ),
                     _ => unreachable!(),
                 };
@@ -1649,30 +1643,17 @@ fn sum(input: &[Token]) -> ParseResult<Expression> {
 //     | '@' factor term_tail
 //     | epsilon
 fn term_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
-    right(tok(TT::STAR), pair(factor, term_tail))
-        .map(|(e, t)| {
-            IncompleteExpression::BinaryOperation(Operator::Times, Box::new(e), Box::new(t))
-        })
-        .or(
-            right(tok(TT::SLASH), pair(factor, term_tail)).map(|(e, t)| {
-                IncompleteExpression::BinaryOperation(Operator::Divide, Box::new(e), Box::new(t))
-            }),
-        )
-        .or(
-            right(tok(TT::DOUBLESLASH), pair(factor, term_tail)).map(|(e, t)| {
-                IncompleteExpression::BinaryOperation(Operator::IntDivide, Box::new(e), Box::new(t))
-            }),
-        )
-        .or(
-            right(tok(TT::PERCENT), pair(factor, term_tail)).map(|(e, t)| {
-                IncompleteExpression::BinaryOperation(Operator::Modulo, Box::new(e), Box::new(t))
-            }),
-        )
-        .or(right(tok(TT::AT), pair(factor, term_tail)).map(|(e, t)| {
-            IncompleteExpression::BinaryOperation(Operator::MatrixMul, Box::new(e), Box::new(t))
-        }))
-        .or(epsilon.map(|_| IncompleteExpression::Empty))
-        .parse(input)
+    pair(
+        tok(TT::STAR)
+            .or(tok(TT::SLASH))
+            .or(tok(TT::DOUBLESLASH))
+            .or(tok(TT::PERCENT))
+            .or(tok(TT::AT)),
+        pair(factor, term_tail),
+    )
+    .map(|(o, (e, t))| IncompleteExpression::BinaryOperation(o.into(), Box::new(e), Box::new(t)))
+    .or(epsilon.map(|_| IncompleteExpression::Empty))
+    .parse(input)
 }
 
 // term:
@@ -1687,9 +1668,9 @@ fn term(input: &[Token]) -> ParseResult<Expression> {
                     IncompleteExpression::Empty => {
                         (current_expr, Box::new(IncompleteExpression::Empty))
                     }
-                    IncompleteExpression::BinaryOperation(op, ref expr, ref tail) => (
-                        Expression::BinaryOperation(op, Box::new((current_expr, *expr.clone()))),
-                        tail.clone(),
+                    IncompleteExpression::BinaryOperation(op, expr, tail) => (
+                        Expression::BinaryOperation(op, Box::new((current_expr, *expr))),
+                        tail,
                     ),
                     _ => unreachable!(),
                 };
@@ -1706,21 +1687,28 @@ fn term(input: &[Token]) -> ParseResult<Expression> {
 //     | power
 fn factor(input: &[Token]) -> ParseResult<Expression> {
     power
-        .or(right(tok(TT::PLUS), factor))
-        .or(pair(tok(TT::MINUS), factor)
-            .map(|(o, e)| Expression::UnaryOperation(o.into(), Box::new(e))))
-        .or(pair(tok(TT::TILDE), factor)
-            .map(|(o, e)| Expression::UnaryOperation(o.into(), Box::new(e))))
+        .or(
+            pair(tok(TT::PLUS).or(tok(TT::MINUS)).or(tok(TT::TILDE)), factor).map(|(o, e)| {
+                let op = o.into();
+                match op {
+                    Operator::Minus | Operator::BitwiseNot => {
+                        Expression::UnaryOperation(op, Box::new(e))
+                    }
+                    _ => e,
+                }
+            }),
+        )
         .parse(input)
 }
 
 // power:
-//     | await_primary '**' factor
-//     | await_primary
+//     | await_primary ['**' factor]
 fn power(input: &[Token]) -> ParseResult<Expression> {
-    pair(await_primary, pair(tok(TT::DOUBLESTAR), factor))
-        .map(|(l, (o, r))| Expression::BinaryOperation(o.into(), Box::new((l, r))))
-        .or(await_primary)
+    pair(await_primary, maybe(pair(tok(TT::DOUBLESTAR), factor)))
+        .map(|(l, exp)| match exp {
+            Some((o, r)) => Expression::BinaryOperation(o.into(), Box::new((l, r))),
+            None => l,
+        })
         .parse(input)
 }
 
@@ -1739,9 +1727,9 @@ fn await_primary(input: &[Token]) -> ParseResult<Expression> {
 }
 
 // primary:
-//   | atom n_primary
+//   | atom primary_tail
 fn primary(input: &[Token]) -> ParseResult<Expression> {
-    pair(atom, n_primary)
+    pair(atom, primary_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
             let mut new_tail = Box::new(tail);
@@ -1750,21 +1738,18 @@ fn primary(input: &[Token]) -> ParseResult<Expression> {
                     IncompleteExpression::Empty => {
                         (current_expr, Box::new(IncompleteExpression::Empty))
                     }
-                    IncompleteExpression::Call(ref args, ref tail) => (
-                        Expression::Call(Box::new(current_expr), args.clone()),
-                        tail.clone(),
-                    ),
-                    IncompleteExpression::Slice(ref slice, ref tail) => (
-                        Expression::Slice(Box::new(current_expr), slice.clone()),
-                        tail.clone(),
-                    ),
-                    IncompleteExpression::Subscript(ref name, ref tail) => (
-                        Expression::Subscript(Box::new(current_expr), name.clone()),
-                        tail.clone(),
-                    ),
-                    IncompleteExpression::PrimaryGenexp(ref genexp, ref tail) => (
-                        Expression::PrimaryGenexp(Box::new(current_expr), genexp.clone()),
-                        tail.clone(),
+                    IncompleteExpression::Call(args, tail) => {
+                        (Expression::Call(Box::new(current_expr), args), tail)
+                    }
+                    IncompleteExpression::Slice(slice, tail) => {
+                        (Expression::Slice(Box::new(current_expr), slice), tail)
+                    }
+                    IncompleteExpression::Subscript(name, tail) => {
+                        (Expression::Subscript(Box::new(current_expr), name), tail)
+                    }
+                    IncompleteExpression::PrimaryGenexp(genexp, tail) => (
+                        Expression::PrimaryGenexp(Box::new(current_expr), genexp),
+                        tail,
                     ),
                     _ => unreachable!(),
                 };
@@ -1774,26 +1759,29 @@ fn primary(input: &[Token]) -> ParseResult<Expression> {
         .parse(input)
 }
 
-// n_primary:
-//     | '.' NAME n_primary
-//     | genexp n_primary
-//     | '(' [arguments] ')' n_primary
-//     | '[' slices ']' n_primary
+// primary_tail:
+//     | '.' NAME primary_tail
+//     | '(' [arguments] ')' primary_tail
+//     | '[' slices ']' primary_tail
+//     | genexp primary_tail
 //     | epsilon
-fn n_primary(input: &[Token]) -> ParseResult<IncompleteExpression> {
-    pair(right(tok(TT::DOT), name), n_primary)
+fn primary_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
+    pair(right(tok(TT::DOT), name), primary_tail)
         .map(|(n, tail)| IncompleteExpression::Subscript(n, Box::new(tail)))
-        .or(pair(genexp, n_primary)
-            .map(|(g, tail)| IncompleteExpression::PrimaryGenexp(Box::new(g), Box::new(tail))))
         .or(pair(
-            right(tok(TT::LPAR), left(arguments, tok(TT::RPAR))),
-            n_primary,
+            right(tok(TT::LPAR), left(maybe(arguments), tok(TT::RPAR))),
+            primary_tail,
         )
-        .map(|(a, tail)| IncompleteExpression::Call(a, Box::new(tail))))
-        .or(
-            pair(right(tok(TT::LSQB), left(slices, tok(TT::RSQB))), n_primary)
-                .map(|(n, tail)| IncompleteExpression::Slice(n, Box::new(tail))),
+        .map(|(a, tail)| {
+            IncompleteExpression::Call(a.unwrap_or(Arguments::empty()), Box::new(tail))
+        }))
+        .or(pair(
+            right(tok(TT::LSQB), left(slices, tok(TT::RSQB))),
+            primary_tail,
         )
+        .map(|(n, tail)| IncompleteExpression::Slice(n, Box::new(tail))))
+        .or(pair(genexp, primary_tail)
+            .map(|(g, tail)| IncompleteExpression::PrimaryGenexp(Box::new(g), Box::new(tail))))
         .or(epsilon.map(|_| IncompleteExpression::Empty))
         .parse(input)
 }
@@ -1816,13 +1804,10 @@ fn slices(input: &[Token]) -> ParseResult<Vec<Slice>> {
 //     | named_expression
 fn slice(input: &[Token]) -> ParseResult<Slice> {
     pair(
-        maybe(expression),
-        pair(
-            right(tok(TT::COLON), maybe(expression)),
-            maybe(right(tok(TT::COLON), maybe(expression))),
-        ),
+        pair(left(maybe(expression), tok(TT::COLON)), maybe(expression)),
+        maybe(right(tok(TT::COLON), maybe(expression))),
     )
-    .map(|(l, (m, r))| Slice::Delimited(l, m, r.flatten()))
+    .map(|((l, m), r)| Slice::Delimited(l, m, r.flatten()))
     .or(named_expression.map(|e| e.into()))
     .parse(input)
 }
@@ -2187,15 +2172,21 @@ fn starred_expression(input: &[Token]) -> ParseResult<Expression> {
 // kwarg_or_starred:
 //     | NAME '=' expression
 //     | starred_expression
-fn kwarg_or_starred(_input: &[Token]) -> ParseResult<Expression> {
-    todo!()
+fn kwarg_or_starred(input: &[Token]) -> ParseResult<Expression> {
+    pair(left(name, tok(TT::EQUAL)), expression)
+        .map(|(n, e)| Expression::KeywordArgument(n, Box::new(e)))
+        .or(starred_expression)
+        .parse(input)
 }
 
 // kwarg_or_double_starred:
 //     | NAME '=' expression
 //     | '**' expression
-fn kwarg_or_double_starred(_input: &[Token]) -> ParseResult<Expression> {
-    todo!()
+fn kwarg_or_double_starred(input: &[Token]) -> ParseResult<Expression> {
+    pair(left(name, tok(TT::EQUAL)), expression)
+        .map(|(n, e)| Expression::KeywordArgument(n, Box::new(e)))
+        .or(right(tok(TT::DOUBLESTAR), expression))
+        .parse(input)
 }
 
 // # ASSIGNMENT TARGETS
@@ -2221,15 +2212,18 @@ fn star_targets_list_seq(input: &[Token]) -> ParseResult<Vec<Expression>> {
 //     | star_target (',' star_target )+ [',']
 //     | star_target ','
 fn star_targets_tuple_seq(input: &[Token]) -> ParseResult<Vec<Expression>> {
-    left(
-        pair(star_target, one_or_more(right(tok(TT::COMMA), star_target))),
-        maybe(tok(TT::COMMA)),
+    pair(
+        star_target,
+        left(
+            one_or_more(right(tok(TT::COMMA), star_target)),
+            maybe(tok(TT::COMMA)),
+        )
+        .or(tok(TT::COMMA).map(|_| vec![])),
     )
     .map(|(u, mut v)| {
         v.insert(0, u);
         v
     })
-    .or(left(star_target, tok(TT::COMMA)).map(|u| vec![u]))
     .parse(input)
 }
 
@@ -2243,10 +2237,27 @@ fn star_target(input: &[Token]) -> ParseResult<Expression> {
 }
 
 // target_with_star_atom:
-//     | t_primary !t_lookahead
+//     | t_primary '.' NAME !t_lookahead
+//     | t_primary '[' slices ']' !t_lookahead
 //     | star_atom
 fn target_with_star_atom(input: &[Token]) -> ParseResult<Expression> {
-    left(t_primary, not(t_lookahead)).or(star_atom).parse(input)
+    pair(
+        t_primary,
+        left(
+            right(tok(TT::DOT), name.map(Selector::Name)),
+            not(t_lookahead),
+        )
+        .or(left(
+            right(
+                tok(TT::LSQB),
+                left(slices.map(Selector::Slice), tok(TT::RSQB)),
+            ),
+            not(t_lookahead),
+        )),
+    )
+    .map(|(p, s)| s.apply_to(p))
+    .or(star_atom)
+    .parse(input)
 }
 
 // star_atom:
@@ -2284,16 +2295,47 @@ fn single_target(input: &[Token]) -> ParseResult<Expression> {
         .parse(input)
 }
 
+enum Selector {
+    Name(Name),
+    Slice(Vec<Slice>),
+}
+
+impl Selector {
+    fn apply_to(self, expr: Expression) -> Expression {
+        let e = Box::new(expr);
+        match self {
+            Self::Name(n) => Expression::Subscript(e, n),
+            Self::Slice(s) => Expression::Slice(e, s),
+        }
+    }
+}
+
 // single_subscript_attribute_target:
-//     | t_primary !t_lookahead
+//     | t_primary '.' NAME !t_lookahead
+//     | t_primary '[' slices ']' !t_lookahead
 fn single_subscript_attribute_target(input: &[Token]) -> ParseResult<Expression> {
-    left(t_primary, not(t_lookahead)).parse(input)
+    pair(
+        t_primary,
+        right(
+            tok(TT::DOT),
+            left(name.map(Selector::Name), not(t_lookahead)),
+        )
+        .or(right(
+            tok(TT::LSQB),
+            left(
+                left(slices.map(Selector::Slice), tok(TT::RSQB)),
+                not(t_lookahead),
+            ),
+        )),
+    )
+    .map(|(p, s)| s.apply_to(p))
+    .parse(input)
 }
 
 // t_primary:
-//     | atom t_primary_tail
+//     | atom &t_lookahead t_primary_tail
 fn t_primary(input: &[Token]) -> ParseResult<Expression> {
-    pair(atom, t_primary_tail)
+    pair(left(atom, lookahead(t_lookahead)), t_primary_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
             let mut new_tail = Box::new(tail);
@@ -2302,21 +2344,18 @@ fn t_primary(input: &[Token]) -> ParseResult<Expression> {
                     IncompleteExpression::Empty => {
                         (current_expr, Box::new(IncompleteExpression::Empty))
                     }
-                    IncompleteExpression::Call(ref args, ref tail) => (
-                        Expression::Call(Box::new(current_expr), args.clone()),
-                        tail.clone(),
-                    ),
-                    IncompleteExpression::Slice(ref slice, ref tail) => (
-                        Expression::Slice(Box::new(current_expr), slice.clone()),
-                        tail.clone(),
-                    ),
-                    IncompleteExpression::Subscript(ref name, ref tail) => (
-                        Expression::Subscript(Box::new(current_expr), name.clone()),
-                        tail.clone(),
-                    ),
-                    IncompleteExpression::PrimaryGenexp(ref genexp, ref tail) => (
-                        Expression::PrimaryGenexp(Box::new(current_expr), genexp.clone()),
-                        tail.clone(),
+                    IncompleteExpression::Call(args, tail) => {
+                        (Expression::Call(Box::new(current_expr), args), tail)
+                    }
+                    IncompleteExpression::Slice(slice, tail) => {
+                        (Expression::Slice(Box::new(current_expr), slice), tail)
+                    }
+                    IncompleteExpression::Subscript(name, tail) => {
+                        (Expression::Subscript(Box::new(current_expr), name), tail)
+                    }
+                    IncompleteExpression::PrimaryGenexp(genexp, tail) => (
+                        Expression::PrimaryGenexp(Box::new(current_expr), genexp),
+                        tail,
                     ),
                     _ => unreachable!(),
                 };
@@ -2327,28 +2366,37 @@ fn t_primary(input: &[Token]) -> ParseResult<Expression> {
 }
 
 // t_primary_tail:
-//     | '.' NAME t_primary_tail
-//     | '[' slices ']' t_primary_tail
-//     | genexp t_primary_tail
-//     | '(' [arguments] ')' t_primary_tail
+//     | '.' NAME &t_lookahead t_primary_tail
+//     | '[' slices ']' &t_lookahead t_primary_tail
+//     | genexp &t_lookahead t_primary_tail
+//     | '(' [arguments] ')' &t_lookahead t_primary_tail
 //     | epsilon
 fn t_primary_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
-    pair(right(tok(TT::DOT), name), t_primary_tail)
-        .map(|(n, tail)| IncompleteExpression::Subscript(n, Box::new(tail)))
-        .or(pair(
-            right(tok(TT::LSQB), left(slices, tok(TT::RSQB))),
-            t_primary_tail,
-        )
-        .map(|(s, tail)| IncompleteExpression::Slice(s, Box::new(tail))))
-        .or(pair(genexp, t_primary_tail)
-            .map(|(g, tail)| IncompleteExpression::PrimaryGenexp(Box::new(g), Box::new(tail))))
-        .or(pair(
-            right(tok(TT::LPAR), left(arguments, tok(TT::RPAR))),
-            t_primary_tail,
-        )
-        .map(|(n, tail)| IncompleteExpression::Call(n, Box::new(tail))))
-        .or(epsilon.map(|_| IncompleteExpression::Empty))
-        .parse(input)
+    pair(
+        right(tok(TT::DOT), left(name, lookahead(t_lookahead))),
+        t_primary_tail,
+    )
+    .map(|(n, tail)| IncompleteExpression::Subscript(n, Box::new(tail)))
+    .or(pair(
+        right(
+            tok(TT::LSQB),
+            left(slices, pair(tok(TT::RSQB), lookahead(t_lookahead))),
+        ),
+        t_primary_tail,
+    )
+    .map(|(s, tail)| IncompleteExpression::Slice(s, Box::new(tail))))
+    .or(pair(left(genexp, lookahead(t_lookahead)), t_primary_tail)
+        .map(|(g, tail)| IncompleteExpression::PrimaryGenexp(Box::new(g), Box::new(tail))))
+    .or(pair(
+        right(
+            tok(TT::LPAR),
+            left(arguments, pair(tok(TT::RPAR), lookahead(t_lookahead))),
+        ),
+        t_primary_tail,
+    )
+    .map(|(n, tail)| IncompleteExpression::Call(n, Box::new(tail))))
+    .or(epsilon.map(|_| IncompleteExpression::Empty))
+    .parse(input)
 }
 
 // t_lookahead: '(' | '[' | '.'

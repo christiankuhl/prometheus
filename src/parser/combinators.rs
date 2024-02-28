@@ -1,5 +1,11 @@
 use super::tokenizer::{Token, TokenType};
 
+// use cache_macro::cache;
+// use lru_cache::LruCache;
+
+static mut STACK_LVL: usize = 0;
+static mut CALLS: usize = 0;
+
 #[derive(Debug)]
 pub(crate) enum ParseResult<'a, Output> {
     Ok((Output, &'a [Token])),
@@ -87,8 +93,31 @@ impl<'a, F, Output> Parser<'a, Output> for F
 where
     F: Fn(&'a [Token]) -> ParseResult<Output>,
 {
+    // #[cache(LruCache : LruCache::new(20))]
     fn parse(&self, input: &'a [Token]) -> ParseResult<'a, Output> {
-        self(input)
+        #[cfg(trace_parser)] {
+            let n = std::any::type_name::<F>();
+            unsafe { STACK_LVL += 1; CALLS += 1; }
+            if !n.contains("{{closure}}") {
+                let mut x = String::new();
+                for i in 0..input.len().min(3) {
+                    x.push_str(&format!("{}, ", input[i]));
+                }
+                unsafe { println!("{}{}: {} ({}) [{}]", " ".repeat(STACK_LVL), STACK_LVL, n, CALLS, x); }
+                let mut foo = String::new();
+                let _ = std::io::stdin().read_line(&mut foo);
+            }
+            let res = self(input);
+            if !n.contains("{{closure}}") {
+                unsafe { println!("{}{}: {} => {:?}\n", " ".repeat(STACK_LVL), STACK_LVL, n, res.is_ok()); }
+            }
+            unsafe { STACK_LVL -= 1; }
+            res
+        }
+        #[cfg(not(trace_parser))]
+        {
+            self(input)
+        }
     }
 }
 

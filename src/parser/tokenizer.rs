@@ -392,9 +392,11 @@ impl Tokenizer {
     }
     fn tokenize(mut self, input: io::Lines<io::BufReader<File>>) -> Result<Vec<Token>, String> {
         for (lineno, line) in input.flatten().enumerate() {
+            // println!("line {lineno}:");
             self.tokenize_line(line, lineno)?;
         }
         let lvl = self.tokens.iter().filter(|t| t.typ == TokenType::INDENT).count() - self.tokens.iter().filter(|t| t.typ == TokenType::DEDENT).count();
+        // println!("Indentation level at EOF: {lvl}");
         let span = self.current.span;
         for _ in 0..lvl {
             self.tokens.push(Token { typ: TokenType::DEDENT, span: span.clone(), lexeme: "".to_string() });
@@ -548,7 +550,7 @@ impl Tokenizer {
         self.end += 1;
         self.tokens_added += 1;
         self.tokens.push(self.current.clone());
-        // println!("{}", self.current);
+        println!("{}", self.current);
         self.current = Token::default();
     }
 
