@@ -1,4 +1,4 @@
-use constcat::concat;
+use const_format::concatcp;
 use once_cell::sync::Lazy;
 use regex::{Match, Regex};
 use std::fs::File;
@@ -223,36 +223,36 @@ const SIMPLE_TOKENS: [(&str, TokenType); 48] = [
 ];
 
 macro_rules! alternative {
-    ($t:tt) => {{
+    ($t:expr) => {{
         $t
     }};
-    ($t:tt, $($ts:tt),+) => {{
-        stringify!{$t|alternative!($($ts),+)}
+    ($t:expr, $($ts:expr),+) => {{
+        concatcp!($t, "|", alternative!($($ts),+))
     }}
 }
 
 macro_rules! group {
-    ($($ts:tt),+) => {{
-        concat!(r"(", alternative!($($ts),+), ")")
+    ($($ts:expr),+) => {{
+        concatcp!(r"(", alternative!($($ts),+), ")")
     }}
 }
 
 macro_rules! any {
-    ($($ts:tt),+) => {
-        concat!(group!(($($ts),+)), r"*")
+    ($($ts:expr),+) => {
+        concatcp!(group!(($($ts),+)), r"*")
     }
 }
 
 macro_rules! maybe {
-    ($($ts:tt),+) => {
-        concat!(group!($($ts),+), r"?")
+    ($($ts:expr),+) => {
+        concatcp!(group!($($ts),+), r"?")
     }
 }
 
 const S_WHITESPACE: &str = r"^[ \f\t]+";
 const S_COMMENT: &str = r"^#[^\r\n]*";
-const S_NEWLINE_OR_WHITESPACE: &str = concat!(r"\\\r?\n", S_WHITESPACE);
-const S_IGNORE: &str = concat!(
+const S_NEWLINE_OR_WHITESPACE: &str = concatcp!(r"\\\r?\n", S_WHITESPACE);
+const S_IGNORE: &str = concatcp!(
     S_WHITESPACE,
     any!(S_NEWLINE_OR_WHITESPACE),
     maybe!(S_COMMENT)
@@ -264,18 +264,18 @@ const S_OCTNUMBER: &str = r"0[oO](?:_?[0-7])+";
 const S_DECNUMBER: &str = r"(?:0(?:_?0)*|[1-9](?:_?[0-9])*)";
 const S_INTNUMBER: &str = group!(S_HEXNUMBER, S_BINNUMBER, S_OCTNUMBER, S_DECNUMBER);
 const S_EXPONENT: &str = r"[eE][-+]?[0-9](?:_?[0-9])*";
-const S_POINTFLOAT: &str = concat!(
+const S_POINTFLOAT: &str = concatcp!(
     group!(
         r"[0-9](?:_?[0-9])*\.(?:[0-9](?:_?[0-9])*)?",
         r"\.[0-9](?:_?[0-9])*"
     ),
     maybe!(S_EXPONENT)
 );
-const S_EXPFLOAT: &str = concat!(r"[0-9](?:_?[0-9])*", S_EXPONENT);
+const S_EXPFLOAT: &str = concatcp!(r"[0-9](?:_?[0-9])*", S_EXPONENT);
 const S_FLOATNUMBER: &str = group!(S_POINTFLOAT, S_EXPFLOAT);
-const S_IMFLOAT: &str = concat!(S_FLOATNUMBER, r"[jJ]");
+const S_IMFLOAT: &str = concatcp!(S_FLOATNUMBER, r"[jJ]");
 const S_IMAGNUMBER: &str = group!(r"[0-9](?:_?[0-9])*[jJ]", S_IMFLOAT);
-const S_NUMBER: &str = concat!(r"^", group!(S_IMAGNUMBER, S_FLOATNUMBER, S_INTNUMBER));
+const S_NUMBER: &str = concatcp!(r"^", group!(S_IMAGNUMBER, S_FLOATNUMBER, S_INTNUMBER));
 const S_KEYWORDS: &str = r"^(\bFalse\b|\bNone\b|\bTrue\b|\band\b|\bas\b|\bassert\b|\basync\b|\bawait\b|\bbreak\b|\bclass\b|\bcontinue\b|\bdef\b|\bdel\b|\belif\b|\belse\b|\bexcept\b|\bfinally\b|\bfor\b|\bfrom\b|\bglobal\b|\bif\b|\bimport\b|\bin\b|\bis\b|\blambda\b|\bnonlocal\b|\bnot\b|\bor\b|\bpass\b|\braise\b|\breturn\b|\btry\b|\bwhile\b|\bwith\b|\byield\b)";
 const S_SOFT_KEYWORDS: &str = r"^(match\b|\bcase\b|\btype\b|\b_\b)";
 const S_STRING_START: &str = r#"^("{3}|'{3}|"{1}|'{1})"#;
@@ -395,13 +395,30 @@ impl Tokenizer {
             // println!("line {lineno}:");
             self.tokenize_line(line.as_str(), lineno)?;
         }
-        let lvl = self.tokens.iter().filter(|t| t.typ == TokenType::INDENT).count() - self.tokens.iter().filter(|t| t.typ == TokenType::DEDENT).count();
+        let lvl = self
+            .tokens
+            .iter()
+            .filter(|t| t.typ == TokenType::INDENT)
+            .count()
+            - self
+                .tokens
+                .iter()
+                .filter(|t| t.typ == TokenType::DEDENT)
+                .count();
         // println!("Indentation level at EOF: {lvl}");
         let span = self.current.span;
         for _ in 0..lvl {
-            self.tokens.push(Token { typ: TokenType::DEDENT, span: span.clone(), lexeme: "".to_string() });
+            self.tokens.push(Token {
+                typ: TokenType::DEDENT,
+                span: span.clone(),
+                lexeme: "".to_string(),
+            });
         }
-        self.tokens.push(Token { typ: TokenType::ENDMARKER, span: span.clone(), lexeme: "".to_string() });
+        self.tokens.push(Token {
+            typ: TokenType::ENDMARKER,
+            span: span.clone(),
+            lexeme: "".to_string(),
+        });
         Ok(self.tokens)
     }
     fn tokenize_line(&mut self, line: &str, lineno: usize) -> Result<(), String> {
@@ -436,7 +453,7 @@ impl Tokenizer {
                                 current_indent = *self.indent.last().unwrap();
                             }
                             if current_indent < m.end() {
-                                return Err(format!("Parser error: indentation level of block starting on line {lineno} does not match any previous indentation level."))
+                                return Err(format!("Parser error: indentation level of block starting on line {lineno} does not match any previous indentation level."));
                             }
                         };
                     } else {
@@ -507,7 +524,8 @@ impl Tokenizer {
                 match end_regex.find(&line[self.start..]) {
                     Some(m) => {
                         self.end = self.start + m.end();
-                        self.current_string.push_str(&line[self.start..self.start + m.end() - tok_len]);
+                        self.current_string
+                            .push_str(&line[self.start..self.start + m.end() - tok_len]);
                         self.in_string = false;
                         self.current.span.end = Location {
                             line: lineno,
