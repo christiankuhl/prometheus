@@ -1,4 +1,4 @@
-use super::tokenizer::{Span, Token, TokenType as TT};
+use super::tokenizer::{Span, Token, TokenType as TT, IMAGNUMBER, DECNUMBER, BINNUMBER, OCTNUMBER, HEXNUMBER, FLOATNUMBER};
 
 #[derive(Debug, Clone)]
 pub(crate) enum Statement {
@@ -194,11 +194,36 @@ pub(crate) enum PyString {
 pub(crate) struct FString;
 
 #[derive(Debug, Clone)]
-pub(crate) struct Number;
+pub(crate) enum Number {
+    Int(i64),
+    Float(f64),
+    Complex(f64, f64),
+}
 
 impl From<Token> for Number {
     fn from(value: Token) -> Self {
-        todo!()
+        let mut value = value.lexeme;
+        if DECNUMBER.is_match(&value) {
+            value = value.replace("_", "");
+            return Self::Int(i64::from_str_radix(&value, 10).unwrap())
+        } else if HEXNUMBER.is_match(&value) {
+            value = value.replace("_", "");
+            return Self::Int(i64::from_str_radix(&value, 16).unwrap())
+        } else if OCTNUMBER.is_match(&value) {
+            value = value.replace("_", "");
+            return Self::Int(i64::from_str_radix(&value, 8).unwrap())
+        } else if BINNUMBER.is_match(&value) {
+            value = value.replace("_", "");
+            return Self::Int(i64::from_str_radix(&value, 2).unwrap())
+        } else if FLOATNUMBER.is_match(&value) {
+            return Self::Float(value.parse().unwrap())
+        } else if IMAGNUMBER.is_match(&value) {
+            value = value.replace("_", "");
+            value = value.replace("j", "");
+            value = value.replace("J", "");
+            return Self::Complex(0., value.parse().unwrap())
+        }
+        unreachable!()
     }
 }
 

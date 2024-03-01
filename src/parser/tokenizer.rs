@@ -289,13 +289,13 @@ static WHITESPACE: Lazy<Regex> =
 static COMMENT: Lazy<Regex> = Lazy::new(|| Regex::new(S_COMMENT).expect("Error compiling regex."));
 static IGNORE: Lazy<Regex> = Lazy::new(|| Regex::new(S_IGNORE).expect("Error compiling regex."));
 static NAME: Lazy<Regex> = Lazy::new(|| Regex::new(S_NAME).expect("Error compiling regex."));
-static HEXNUMBER: Lazy<Regex> =
+pub(super) static HEXNUMBER: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_HEXNUMBER).expect("Error compiling regex."));
-static BINNUMBER: Lazy<Regex> =
+pub(super) static BINNUMBER: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_BINNUMBER).expect("Error compiling regex."));
-static OCTNUMBER: Lazy<Regex> =
+pub(super) static OCTNUMBER: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_OCTNUMBER).expect("Error compiling regex."));
-static DECNUMBER: Lazy<Regex> =
+pub(super) static DECNUMBER: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_DECNUMBER).expect("Error compiling regex."));
 static INTNUMBER: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_INTNUMBER).expect("Error compiling regex."));
@@ -305,10 +305,10 @@ static POINTFLOAT: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_POINTFLOAT).expect("Error compiling regex."));
 static EXPFLOAT: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_EXPFLOAT).expect("Error compiling regex."));
-static FLOATNUMBER: Lazy<Regex> =
+pub(super) static FLOATNUMBER: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_FLOATNUMBER).expect("Error compiling regex."));
 static IMFLOAT: Lazy<Regex> = Lazy::new(|| Regex::new(S_IMFLOAT).expect("Error compiling regex."));
-static IMAGNUMBER: Lazy<Regex> =
+pub(super) static IMAGNUMBER: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_IMAGNUMBER).expect("Error compiling regex."));
 static NUMBER: Lazy<Regex> = Lazy::new(|| Regex::new(S_NUMBER).expect("Error compiling regex."));
 static KEYWORDS: Lazy<Regex> =
