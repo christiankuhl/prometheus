@@ -278,11 +278,11 @@ const S_IMAGNUMBER: &str = group!(r"[0-9](?:_?[0-9])*[jJ]", S_IMFLOAT);
 const S_NUMBER: &str = concat!(r"^", group!(S_IMAGNUMBER, S_FLOATNUMBER, S_INTNUMBER));
 const S_KEYWORDS: &str = r"^(\bFalse\b|\bNone\b|\bTrue\b|\band\b|\bas\b|\bassert\b|\basync\b|\bawait\b|\bbreak\b|\bclass\b|\bcontinue\b|\bdef\b|\bdel\b|\belif\b|\belse\b|\bexcept\b|\bfinally\b|\bfor\b|\bfrom\b|\bglobal\b|\bif\b|\bimport\b|\bin\b|\bis\b|\blambda\b|\bnonlocal\b|\bnot\b|\bor\b|\bpass\b|\braise\b|\breturn\b|\btry\b|\bwhile\b|\bwith\b|\byield\b)";
 const S_SOFT_KEYWORDS: &str = r"^(match\b|\bcase\b|\btype\b|\b_\b)";
-const S_STRING_START: &str = r#"^("{1}|"{3}|'{1}|'''{3})"#;
-const S_SINGLE_QUOTE_END: &str = r"[^\\]'{1}";
-const S_DOUBLE_QUOTE_END: &str = r#"[^\\]"{1}"#;
-const S_SINGLE_QUOTE_MULTILINE_END: &str = r"[^\\]'{3}";
-const S_DOUBLE_QUOTE_MULTILINE_END: &str = r#"[^\\]"{3}"#;
+const S_STRING_START: &str = r#"^("{3}|'{3}|"{1}|'{1})"#;
+const S_SINGLE_QUOTE_END: &str = r"[^\\]?'{1}";
+const S_DOUBLE_QUOTE_END: &str = r#"[^\\]?"{1}"#;
+const S_SINGLE_QUOTE_MULTILINE_END: &str = r"[^\\]?'{3}";
+const S_DOUBLE_QUOTE_MULTILINE_END: &str = r#"[^\\]?"{3}"#;
 
 static WHITESPACE: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_WHITESPACE).expect("Error compiling regex."));
@@ -349,12 +349,12 @@ impl StringDelimiter {
             Self::MultilineSingleQuotes
         }
     }
-    fn matching_end(&self) -> &'static Regex {
+    fn matching_end(&self) -> (&'static Regex, usize) {
         match self {
-            Self::SingleQuotes => &SINGLE_QUOTE,
-            Self::MultilineSingleQuotes => &MULTILINE_SINGLE_QUOTE,
-            Self::DoubleQuotes => &DOUBLE_QUOTE,
-            Self::MultilineDoubleQuotes => &MULTILINE_DOUBLE_QUOTE,
+            Self::SingleQuotes => (&SINGLE_QUOTE, 1),
+            Self::MultilineSingleQuotes => (&MULTILINE_SINGLE_QUOTE, 3),
+            Self::DoubleQuotes => (&DOUBLE_QUOTE, 1),
+            Self::MultilineDoubleQuotes => (&MULTILINE_DOUBLE_QUOTE, 3),
             Self::None => unreachable!(),
         }
     }
@@ -390,10 +390,10 @@ impl Tokenizer {
             tokens_added: 0,
         })
     }
-    fn tokenize(mut self, input: io::Lines<io::BufReader<File>>) -> Result<Vec<Token>, String> {
-        for (lineno, line) in input.flatten().enumerate() {
+    fn tokenize(mut self, input: impl Iterator<Item = String>) -> Result<Vec<Token>, String> {
+        for (lineno, line) in input.enumerate() {
             // println!("line {lineno}:");
-            self.tokenize_line(line, lineno)?;
+            self.tokenize_line(line.as_str(), lineno)?;
         }
         let lvl = self.tokens.iter().filter(|t| t.typ == TokenType::INDENT).count() - self.tokens.iter().filter(|t| t.typ == TokenType::DEDENT).count();
         // println!("Indentation level at EOF: {lvl}");
@@ -404,7 +404,7 @@ impl Tokenizer {
         self.tokens.push(Token { typ: TokenType::ENDMARKER, span: span.clone(), lexeme: "".to_string() });
         Ok(self.tokens)
     }
-    fn tokenize_line(&mut self, line: String, lineno: usize) -> Result<(), String> {
+    fn tokenize_line(&mut self, line: &str, lineno: usize) -> Result<(), String> {
         self.start = 0;
         self.end = 1;
         self.tokens_added = 0;
@@ -491,7 +491,7 @@ impl Tokenizer {
                 }
                 if let Some(m) = STRING_START.find(&line[self.start..]) {
                     self.string_start = StringDelimiter::from_match(m);
-                    self.current_string = m.as_str().to_string();
+                    self.current_string = "".to_string();
                     self.in_string = true;
                     self.current.typ = TokenType::STRING;
                     self.current.span.start = Location {
@@ -503,10 +503,11 @@ impl Tokenizer {
                     continue;
                 }
             } else {
-                match self.string_start.matching_end().find(&line[self.start..]) {
+                let (end_regex, tok_len) = self.string_start.matching_end();
+                match end_regex.find(&line[self.start..]) {
                     Some(m) => {
                         self.end = self.start + m.end();
-                        self.current_string.push_str(&line[self.start..self.end]);
+                        self.current_string.push_str(&line[self.start..self.start + m.end() - tok_len]);
                         self.in_string = false;
                         self.current.span.end = Location {
                             line: lineno,
@@ -573,16 +574,22 @@ impl Tokenizer {
     }
 }
 
-pub(crate) fn tokenize<P>(path: P) -> Result<Vec<Token>, String>
+pub(crate) fn tokenize_file<P>(path: P) -> Result<Vec<Token>, String>
 where
     P: AsRef<Path> + std::fmt::Display,
 {
     if let Ok(lines) = read_lines(&path) {
         let tokenizer = Tokenizer::new().expect("Could not build tokenizer.");
-        Ok(tokenizer.tokenize(lines)?)
+        Ok(tokenizer.tokenize(lines.flatten())?)
     } else {
         Err(format!("{} not found. No such file or directory.", &path))
     }
+}
+
+pub(crate) fn tokenize_line(input: &str) -> Result<Vec<Token>, String> {
+    let mut tokenizer = Tokenizer::new().expect("Could not build tokenizer.");
+    tokenizer.tokenize_line(input, 0)?;
+    Ok(tokenizer.tokens)
 }
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
