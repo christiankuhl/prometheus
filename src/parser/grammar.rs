@@ -2137,7 +2137,7 @@ fn args(input: &[Token]) -> ParseResult<Arguments> {
         maybe(right(tok(TT::COMMA), kwargs)),
     )
     .map(|(pos, kw)| Arguments {
-        positional: pos.iter().cloned().collect(),
+        positional: pos.to_vec(),
         keyword: kw.unwrap_or_default(),
     })
     .parse(input)

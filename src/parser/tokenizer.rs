@@ -317,14 +317,6 @@ static SOFT_KEYWORDS: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_SOFT_KEYWORDS).expect("Error compiling regex."));
 static STRING_START: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_STRING_START).expect("Error compiling regex."));
-static SINGLE_QUOTE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(S_SINGLE_QUOTE_END).expect("Error compiling regex."));
-static MULTILINE_SINGLE_QUOTE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(S_SINGLE_QUOTE_MULTILINE_END).expect("Error compiling regex."));
-static DOUBLE_QUOTE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(S_DOUBLE_QUOTE_END).expect("Error compiling regex."));
-static MULTILINE_DOUBLE_QUOTE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(S_DOUBLE_QUOTE_MULTILINE_END).expect("Error compiling regex."));
 
 enum StringDelimiter {
     SingleQuotes,
@@ -349,12 +341,12 @@ impl StringDelimiter {
             Self::MultilineSingleQuotes
         }
     }
-    fn matching_end(&self) -> (&'static Regex, usize) {
+    fn matching_end(&self) -> (char, usize) {
         match self {
-            Self::SingleQuotes => (&SINGLE_QUOTE, 1),
-            Self::MultilineSingleQuotes => (&MULTILINE_SINGLE_QUOTE, 3),
-            Self::DoubleQuotes => (&DOUBLE_QUOTE, 1),
-            Self::MultilineDoubleQuotes => (&MULTILINE_DOUBLE_QUOTE, 3),
+            Self::SingleQuotes => ('\'', 1),
+            Self::MultilineSingleQuotes => ('\'', 3),
+            Self::DoubleQuotes => ('"', 1),
+            Self::MultilineDoubleQuotes => ('"', 3),
             Self::None => unreachable!(),
         }
     }
@@ -472,16 +464,16 @@ impl Tokenizer {
                     }
                 }
 
-                if self.find_by_regex(&KEYWORDS, TokenType::KEYWORD, &line, lineno) {
+                if self.find_by_regex(&KEYWORDS, TokenType::KEYWORD, line, lineno) {
                     continue;
                 }
-                if self.find_by_regex(&SOFT_KEYWORDS, TokenType::SOFT_KEYWORD, &line, lineno) {
+                if self.find_by_regex(&SOFT_KEYWORDS, TokenType::SOFT_KEYWORD, line, lineno) {
                     continue;
                 }
-                if self.find_by_regex(&NUMBER, TokenType::NUMBER, &line, lineno) {
+                if self.find_by_regex(&NUMBER, TokenType::NUMBER, line, lineno) {
                     continue;
                 }
-                if self.find_by_regex(&NAME, TokenType::NAME, &line, lineno) {
+                if self.find_by_regex(&NAME, TokenType::NAME, line, lineno) {
                     continue;
                 }
 
@@ -520,28 +512,33 @@ impl Tokenizer {
                     continue;
                 }
             } else {
-                let (end_regex, tok_len) = self.string_start.matching_end();
-                match end_regex.find(&line[self.start..]) {
-                    Some(m) => {
-                        self.end = self.start + m.end();
-                        self.current_string
-                            .push_str(&line[self.start..self.start + m.end() - tok_len]);
+                let mut quotes = "".to_string();
+                let mut escaped = false;
+                let (string_end, tok_len) = self.string_start.matching_end();
+                for chr in line[self.start..].chars() {
+                    self.end += chr.len_utf8();
+                    if escaped || chr != string_end && chr != '\\' {
+                        self.current_string.push(chr);
+                        quotes.clear();
+                        escaped = false;
+                        continue;
+                    }
+                    if chr == string_end && quotes.len() < tok_len {
+                        quotes.push(chr);
+                    }
+                    if chr == string_end && quotes.len() == tok_len {
                         self.in_string = false;
+                        self.end -= tok_len;
                         self.current.span.end = Location {
                             line: lineno,
                             column: self.end,
                         };
                         self.current.lexeme = self.current_string.clone();
                         self.push();
-                        continue;
-                    }
-                    None => {
-                        self.current_string.push_str(&line[self.start..self.end]);
-                        self.current_string.push('\n');
-                        self.end = line.len();
-                        self.start = self.end;
                         break;
                     }
+                    escaped = chr == '\\';
+                    self.current_string.push(chr);
                 }
             }
         }
