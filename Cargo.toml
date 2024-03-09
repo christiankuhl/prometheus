@@ -3,7 +3,13 @@ name = "prometheus"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "prometheus"
+path = "src/lib.rs"
+
+[[bin]]
+name = "prometheus"
+path = "src/main.rs"
 
 [dependencies]
 const_format = "0.2.32"

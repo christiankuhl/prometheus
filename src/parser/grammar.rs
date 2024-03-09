@@ -57,8 +57,12 @@ use super::ast::*;
 use super::combinators::*;
 use super::tokenizer::{Token, TokenType as TT};
 
-pub(crate) fn parse(input: &[Token]) -> ParseResult<Vec<Statement>> {
+pub fn parse(input: &[Token]) -> ParseResult<Vec<Statement>> {
     file_.parse(input)
+}
+
+pub fn parse_interactive(input: &[Token]) -> ParseResult<Vec<Statement>> {
+    interactive.parse(input)
 }
 
 // # STARTING RULES

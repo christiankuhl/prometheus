@@ -3,5 +3,6 @@ mod ast;
 mod combinators;
 pub mod tokenizer;
 
-pub(crate) use grammar::parse;
-pub(crate) use combinators::ParseResult;
+pub use grammar::{parse, parse_interactive};
+pub use combinators::ParseResult;
+pub use ast::*;

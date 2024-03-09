@@ -1,13 +1,7 @@
 use super::tokenizer::{Token, TokenType};
 
-// use cache_macro::cache;
-// use lru_cache::LruCache;
-
-static mut STACK_LVL: usize = 0;
-static mut CALLS: usize = 0;
-
 #[derive(Debug)]
-pub(crate) enum ParseResult<'a, Output> {
+pub enum ParseResult<'a, Output> {
     Ok((Output, &'a [Token])),
     Err,
 }
@@ -49,15 +43,6 @@ impl<'a, T> ParseResult<'a, T> {
             Self::Err => ParseResult::Err,
         }
     }
-    pub(super) fn discard(self) -> ParseResult<'a, ()> {
-        self.map(|(_, r)| ((), r))
-    }
-    pub(super) fn is_ok(&self) -> bool {
-        match self {
-            Self::Ok(_) => true,
-            Self::Err => false,
-        }
-    }
 }
 
 pub(super) trait Parser<'a, Output> {
@@ -70,14 +55,6 @@ pub(super) trait Parser<'a, Output> {
         F: Fn(Output) -> MappedOutput + 'a,
     {
         BoxedParser::new(map(self, map_fn))
-    }
-    fn pred<F>(self, predicate: F) -> BoxedParser<'a, Output>
-    where
-        Self: Sized + 'a,
-        Output: 'a,
-        F: Fn(&Output) -> bool + 'a,
-    {
-        BoxedParser::new(pred(self, predicate))
     }
     fn or(self, parser: impl Parser<'a, Output> + 'a) -> BoxedParser<'a, Output>
     where
@@ -93,31 +70,8 @@ impl<'a, F, Output> Parser<'a, Output> for F
 where
     F: Fn(&'a [Token]) -> ParseResult<Output>,
 {
-    // #[cache(LruCache : LruCache::new(20))]
     fn parse(&self, input: &'a [Token]) -> ParseResult<'a, Output> {
-        #[cfg(trace_parser)] {
-            let n = std::any::type_name::<F>();
-            unsafe { STACK_LVL += 1; CALLS += 1; }
-            if !n.contains("{{closure}}") {
-                let mut x = String::new();
-                for i in 0..input.len().min(3) {
-                    x.push_str(&format!("{}, ", input[i]));
-                }
-                unsafe { println!("{}{}: {} ({}) [{}]", " ".repeat(STACK_LVL), STACK_LVL, n, CALLS, x); }
-                let mut foo = String::new();
-                let _ = std::io::stdin().read_line(&mut foo);
-            }
-            let res = self(input);
-            if !n.contains("{{closure}}") {
-                unsafe { println!("{}{}: {} => {:?}\n", " ".repeat(STACK_LVL), STACK_LVL, n, res.is_ok()); }
-            }
-            unsafe { STACK_LVL -= 1; }
-            res
-        }
-        #[cfg(not(trace_parser))]
-        {
-            self(input)
-        }
+        self(input)
     }
 }
 
@@ -178,20 +132,6 @@ pub(super) fn right<'a, A, B>(
     right_parser: impl Parser<'a, B>,
 ) -> impl Parser<'a, B> {
     map(pair(left_parser, right_parser), |(_left, right)| right)
-}
-
-pub(super) fn pred<'a, A, F>(parser: impl Parser<'a, A>, predicate: F) -> impl Parser<'a, A>
-where
-    F: Fn(&A) -> bool,
-{
-    move |input| {
-        if let ParseResult::Ok((result, rest)) = parser.parse(input) {
-            if predicate(&result) {
-                return ParseResult::Ok((result, rest));
-            }
-        }
-        ParseResult::Err
-    }
 }
 
 pub(super) fn one_or_more<'a, R>(parser: impl Parser<'a, R>) -> impl Parser<'a, Vec<R>> {

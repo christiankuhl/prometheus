@@ -33,7 +33,7 @@ impl Span {
 }
 
 #[derive(Clone, Default, Debug)]
-pub(crate) struct Token {
+pub struct Token {
     pub(crate) typ: TokenType,
     pub(crate) lexeme: String,
     pub(crate) span: Span,
@@ -56,54 +56,54 @@ pub(crate) enum TokenType {
     NEWLINE,
     INDENT,
     DEDENT,
-    LPAR,             // lexed by value
-    RPAR,             // lexed by value
-    LSQB,             // lexed by value
-    RSQB,             // lexed by value
-    COLON,            // lexed by value
-    COMMA,            // lexed by value
-    SEMI,             // lexed by value
-    PLUS,             // lexed by value
-    MINUS,            // lexed by value
-    STAR,             // lexed by value
-    SLASH,            // lexed by value
-    VBAR,             // lexed by value
-    AMPER,            // lexed by value
-    LESS,             // lexed by value
-    GREATER,          // lexed by value
-    EQUAL,            // lexed by value
-    DOT,              // lexed by value
-    PERCENT,          // lexed by value
-    LBRACE,           // lexed by value
-    RBRACE,           // lexed by value
-    EQEQUAL,          // lexed by value
-    NOTEQUAL,         // lexed by value
-    LESSEQUAL,        // lexed by value
-    GREATEREQUAL,     // lexed by value
-    TILDE,            // lexed by value
-    CIRCUMFLEX,       // lexed by value
-    LEFTSHIFT,        // lexed by value
-    RIGHTSHIFT,       // lexed by value
-    DOUBLESTAR,       // lexed by value
-    PLUSEQUAL,        // lexed by value
-    MINEQUAL,         // lexed by value
-    STAREQUAL,        // lexed by value
-    SLASHEQUAL,       // lexed by value
-    PERCENTEQUAL,     // lexed by value
-    AMPEREQUAL,       // lexed by value
-    VBAREQUAL,        // lexed by value
-    CIRCUMFLEXEQUAL,  // lexed by value
-    LEFTSHIFTEQUAL,   // lexed by value
-    RIGHTSHIFTEQUAL,  // lexed by value
-    DOUBLESTAREQUAL,  // lexed by value
-    DOUBLESLASH,      // lexed by value
-    DOUBLESLASHEQUAL, // lexed by value
-    AT,               // lexed by value
-    ATEQUAL,          // lexed by value
-    RARROW,           // lexed by value
-    ELLIPSIS,         // lexed by value
-    COLONEQUAL,       // lexed by value
-    EXCLAMATION,      // lexed by value
+    LPAR,
+    RPAR,
+    LSQB,
+    RSQB,
+    COLON,
+    COMMA,
+    SEMI,
+    PLUS,
+    MINUS,
+    STAR,
+    SLASH,
+    VBAR,
+    AMPER,
+    LESS,
+    GREATER,
+    EQUAL,
+    DOT,
+    PERCENT,
+    LBRACE,
+    RBRACE,
+    EQEQUAL,
+    NOTEQUAL,
+    LESSEQUAL,
+    GREATEREQUAL,
+    TILDE,
+    CIRCUMFLEX,
+    LEFTSHIFT,
+    RIGHTSHIFT,
+    DOUBLESTAR,
+    PLUSEQUAL,
+    MINEQUAL,
+    STAREQUAL,
+    SLASHEQUAL,
+    PERCENTEQUAL,
+    AMPEREQUAL,
+    VBAREQUAL,
+    CIRCUMFLEXEQUAL,
+    LEFTSHIFTEQUAL,
+    RIGHTSHIFTEQUAL,
+    DOUBLESTAREQUAL,
+    DOUBLESLASH,
+    DOUBLESLASHEQUAL,
+    AT,
+    ATEQUAL,
+    RARROW,
+    ELLIPSIS,
+    COLONEQUAL,
+    EXCLAMATION,
     OP,
     TYPE_IGNORE,
     TYPE_COMMENT,
@@ -352,7 +352,7 @@ impl StringDelimiter {
     }
 }
 
-struct Tokenizer {
+pub struct Tokenizer {
     tokens: Vec<Token>,
     current: Token,
     start: usize,
@@ -366,7 +366,7 @@ struct Tokenizer {
 }
 
 impl Tokenizer {
-    fn new() -> Result<Self, regex::Error> {
+    pub fn new() -> Result<Self, regex::Error> {
         let tokens = vec![];
         let current = Token::default();
         Ok(Self {
@@ -382,11 +382,23 @@ impl Tokenizer {
             tokens_added: 0,
         })
     }
-    fn tokenize(mut self, input: impl Iterator<Item = String>) -> Result<Vec<Token>, String> {
+    pub fn tokenize(&mut self, input: impl Iterator<Item = String>) -> ParserState {
         for (lineno, line) in input.enumerate() {
             // println!("line {lineno}:");
-            self.tokenize_line(line.as_str(), lineno)?;
+            match self.tokenize_line(line.as_str(), lineno) {
+                Ok(()) => continue,
+                Err(s) => return ParserState::Error(s),
+            }
         }
+        if self.in_string || self.paren_lvl > 0  {
+            return ParserState::ContinuationNeeded
+        }
+        ParserState::Ok
+    }
+    pub fn extract(self) -> Result<Vec<Token>, String> {
+        Ok(self.tokens)
+    }
+    pub fn finalize(mut self) -> Result<Vec<Token>, String> {
         let lvl = self
             .tokens
             .iter()
@@ -397,8 +409,7 @@ impl Tokenizer {
                 .iter()
                 .filter(|t| t.typ == TokenType::DEDENT)
                 .count();
-        // println!("Indentation level at EOF: {lvl}");
-        let span = self.current.span;
+        let span = self.current.span.clone();
         for _ in 0..lvl {
             self.tokens.push(Token {
                 typ: TokenType::DEDENT,
@@ -408,7 +419,7 @@ impl Tokenizer {
         }
         self.tokens.push(Token {
             typ: TokenType::ENDMARKER,
-            span: span.clone(),
+            span,
             lexeme: "".to_string(),
         });
         Ok(self.tokens)
@@ -542,7 +553,7 @@ impl Tokenizer {
                 }
             }
         }
-        if self.tokens_added > 0 {
+        if self.tokens_added > 0 && !self.in_string {
             let mut token = Token::default();
             token.span = Span::new(lineno, self.start, lineno, self.end);
             token.lexeme = "".to_string();
@@ -566,7 +577,7 @@ impl Tokenizer {
         self.end += 1;
         self.tokens_added += 1;
         self.tokens.push(self.current.clone());
-        println!("{}", self.current);
+        // println!("{}", self.current);
         self.current = Token::default();
     }
 
@@ -589,22 +600,17 @@ impl Tokenizer {
     }
 }
 
-pub(crate) fn tokenize_file<P>(path: P) -> Result<Vec<Token>, String>
+pub fn tokenize_file<P>(path: P) -> Result<Vec<Token>, String>
 where
     P: AsRef<Path> + std::fmt::Display,
 {
     if let Ok(lines) = read_lines(&path) {
-        let tokenizer = Tokenizer::new().expect("Could not build tokenizer.");
-        Ok(tokenizer.tokenize(lines.flatten())?)
+        let mut tokenizer = Tokenizer::new().expect("Could not build tokenizer.");
+        tokenizer.tokenize(lines.flatten());
+        tokenizer.finalize()
     } else {
         Err(format!("{} not found. No such file or directory.", &path))
     }
-}
-
-pub(crate) fn tokenize_line(input: &str) -> Result<Vec<Token>, String> {
-    let mut tokenizer = Tokenizer::new().expect("Could not build tokenizer.");
-    tokenizer.tokenize_line(input, 0)?;
-    Ok(tokenizer.tokens)
 }
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
@@ -613,4 +619,10 @@ where
 {
     let file = File::open(filename)?;
     Ok(io::BufReader::new(file).lines())
+}
+
+pub enum ParserState {
+    Ok,
+    ContinuationNeeded,
+    Error(String),
 }

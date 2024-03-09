@@ -1,7 +1,7 @@
 use super::tokenizer::{Span, Token, TokenType as TT, IMAGNUMBER, DECNUMBER, BINNUMBER, OCTNUMBER, HEXNUMBER, FLOATNUMBER};
 
 #[derive(Debug, Clone)]
-pub(crate) enum Statement {
+pub enum Statement {
     FunctionDeclaration(FunctionDeclaration, Vec<Decorator>),
     Continue,
     Break,
@@ -45,7 +45,7 @@ pub(crate) enum Statement {
 }
 
 #[derive(Clone)]
-pub(crate) struct Name {
+pub struct Name {
     name: String,
     span: Span,
 }
@@ -69,14 +69,14 @@ impl From<Token> for Name {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct FunctionDeclaration {
+pub struct FunctionDeclaration {
     pub(super) name: Name,
     pub(super) parameters: Vec<Parameter>,
     pub(super) code: Vec<Statement>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ClassDefinition {
+pub struct ClassDefinition {
     pub(super) name: Name,
     pub(super) ancestors: Arguments,
     pub(super) body: Vec<Statement>,
@@ -84,7 +84,7 @@ pub(crate) struct ClassDefinition {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Parameter {
+pub struct Parameter {
     pub(super) name: Name,
     pub(super) default: Option<Expression>,
     pub(super) annotation: Option<Expression>,
@@ -130,10 +130,10 @@ impl From<Name> for Parameter {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Decorator(pub(super) Expression);
+pub struct Decorator(pub(super) Expression);
 
 #[derive(Debug, Clone)]
-pub(crate) enum Expression {
+pub enum Expression {
     Starred(Box<Expression>),
     BinaryOperation(Operator, Box<(Expression, Expression)>),
     UnaryOperation(Operator, Box<Expression>),
@@ -194,7 +194,7 @@ pub(crate) enum PyString {
 pub(crate) struct FString;
 
 #[derive(Debug, Clone)]
-pub(crate) enum Number {
+pub enum Number {
     Int(i64),
     Float(f64),
     Complex(f64, f64),
@@ -228,10 +228,10 @@ impl From<Token> for Number {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Argument;
+pub struct Argument;
 
 #[derive(Debug, Clone)]
-pub(crate) struct Arguments {
+pub struct Arguments {
     pub(super) positional: Vec<Expression>,
     pub(super) keyword: Vec<Expression>,
 }
@@ -264,7 +264,7 @@ impl From<Expression> for Slice {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum Operator {
+pub enum Operator {
     Or,
     And,
     Not,
@@ -337,20 +337,20 @@ impl From<Token> for Operator {
 
 
 #[derive(Debug, Clone)]
-pub(crate) struct Module {
+pub struct Module {
     pub(super) rel_level: usize,
     pub(super) path: Vec<Name>,
     pub(super) alias: Option<Name>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Import {
+pub struct Import {
     pub(super) module: Module,
     pub(super) items: Vec<ImportItem>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ImportItem {
+pub struct ImportItem {
     pub(super) name: Vec<Name>,     // convention: empty Vec serves as *
     pub(super) alias: Option<Name>,
 }
