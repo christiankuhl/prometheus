@@ -18,12 +18,19 @@ pub enum Statement {
         Option<Vec<Statement>>,
     ),
     ClassDefinition(ClassDefinition),
-    With(Vec<Expression>, Vec<Statement>),
+    With(
+        Vec<Expression>,        // item 
+        Vec<Statement>,         // block
+        Option<Expression>,     // type comment
+        bool,                   // async
+    ),
     For(
-        Vec<Expression>,
-        Vec<Expression>,
-        Vec<Statement>,
-        Option<Vec<Statement>>,
+        Vec<Expression>,        // targets
+        Vec<Expression>,        // expression
+        Vec<Statement>,         // block
+        Option<Vec<Statement>>, // else block
+        Option<Expression>,     // type comment
+        bool,                   // async
     ),
     Try(
         Vec<Statement>,         // block
@@ -78,6 +85,7 @@ pub struct FunctionDeclaration {
     pub(super) name: Name,
     pub(super) parameters: Vec<Parameter>,
     pub(super) code: Vec<Statement>,
+    pub(super) is_async: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -86,6 +94,7 @@ pub struct ClassDefinition {
     pub(super) ancestors: Arguments,
     pub(super) body: Vec<Statement>,
     pub(super) decorators: Vec<Decorator>,
+    pub(super) type_params: Vec<Expression>,
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +104,7 @@ pub struct Parameter {
     pub(super) annotation: Option<Expression>,
     pub(super) starred: bool,
     pub(super) double_starred: bool,
+    pub(super) type_comment: Option<String>,
 }
 
 impl Parameter {
@@ -105,15 +115,17 @@ impl Parameter {
             annotation: None,
             starred: false,
             double_starred: false,
+            type_comment: None,
         }
     }
-    pub(super) fn with_annotation(name: Name, annotation: Expression) -> Self {
+    pub(super) fn with_annotation(name: Name, annotation: Option<Expression>) -> Self {
         Self {
             name,
             default: None,
-            annotation: Some(annotation),
+            annotation: annotation,
             starred: false,
             double_starred: false,
+            type_comment: None,
         }
     }
     pub(super) fn kwargs(mut self) -> Self {
@@ -130,6 +142,7 @@ impl From<Name> for Parameter {
             annotation: None,
             starred: false,
             double_starred: false,
+            type_comment: None,
         }
     }
 }
@@ -170,7 +183,7 @@ pub enum Expression {
     Yield(Vec<Expression>),
     YieldFrom(Box<Expression>),
     Generator(Box<Expression>, Vec<Expression>),
-    ForIfClause(Vec<Expression>, Box<Expression>, Vec<Expression>),
+    ForIfClause(Vec<Expression>, Box<Expression>, Vec<Expression>, bool),
     Tuple(Vec<Expression>),
     List(Vec<Expression>),
     ListComprehension(Box<Expression>, Vec<Expression>),
@@ -192,6 +205,7 @@ pub enum Expression {
     Pattern(Box<Pattern>),
     Attribute(Vec<Name>),
     Lambda(Vec<Parameter>, Box<Expression>),
+    TypeComment(String),
     PrimaryGenexp(Box<Expression>, Box<Expression>), // ???
 }
 

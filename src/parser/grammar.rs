@@ -216,7 +216,6 @@ fn compound_stmt(input: &[Token]) -> ParseResult<Statement> {
 //          | single_subscript_attribute_target) ':' expression ['=' annotated_rhs ]
 //     | (star_targets '=' )+ (yield_expr | star_expressions) !'=' [TYPE_COMMENT]
 //     | single_target augassign ~ (yield_expr | star_expressions)
-// TODO: type comment, ~
 fn assignment(input: &[Token]) -> ParseResult<Statement> {
     pair(
         pair(left(name, tok(TT::COLON)), expression),
@@ -232,14 +231,21 @@ fn assignment(input: &[Token]) -> ParseResult<Statement> {
         maybe(right(tok(TT::EQUAL), annotated_rhs)),
     )
     .map(|((l, t), r)| Statement::Assignment(vec![l], None, r, Some(Box::new(t)))))
-    .or(left(
+    .or(pair(
         pair(
             one_or_more(left(star_targets, tok(TT::EQUAL))),
             yield_expr.map(|e| vec![e]).or(star_expressions),
         ),
-        not(tok(TT::EQUAL)),
+        right(not(tok(TT::EQUAL)), maybe(tok(TT::TYPE_COMMENT))),
     )
-    .map(|(l, r)| Statement::Assignment(l.concat(), None, Some(r), None)))
+    .map(|((l, r), t)| {
+        Statement::Assignment(
+            l.concat(),
+            None,
+            Some(r),
+            t.map(|s| Box::new(Expression::TypeComment(s.lexeme))),
+        )
+    }))
     .or(pair(
         pair(single_target, augassign),
         yield_expr.map(|e| vec![e]).or(star_expressions),
@@ -527,20 +533,20 @@ fn class_def(input: &[Token]) -> ParseResult<Statement> {
 
 // class_def_raw:
 //     | 'class' NAME [type_params] ['(' [arguments] ')' ] ':' block
-// TODO: type_params
 fn class_def_raw(input: &[Token]) -> ParseResult<ClassDefinition> {
     pair(
-        right(token(TT::KEYWORD, "class"), name),
+        right(token(TT::KEYWORD, "class"), pair(name, maybe(type_params))),
         pair(
             maybe(right(tok(TT::LPAR), left(arguments, tok(TT::RPAR)))),
             right(tok(TT::COLON), block),
         ),
     )
-    .map(|(name, (ancestors, body))| ClassDefinition {
+    .map(|((name, ts), (ancestors, body))| ClassDefinition {
         name,
         ancestors: ancestors.unwrap_or(Arguments::empty()),
         body,
         decorators: vec![],
+        type_params: ts.unwrap_or(vec![]),
     })
     .parse(input)
 }
@@ -559,23 +565,25 @@ fn function_def(input: &[Token]) -> ParseResult<Statement> {
 // function_def_raw:
 //     | 'def' NAME [type_params] '(' [params] ')' ['->' expression ] ':' [func_type_comment] block
 //     | ASYNC 'def' NAME [type_params] '(' [params] ')' ['->' expression ] ':' [func_type_comment] block
-
-// #TODO: Incomplete
 fn function_def_raw(input: &[Token]) -> ParseResult<FunctionDeclaration> {
     pair(
+        maybe(token(TT::KEYWORD, "async")),
         pair(
-            right(token(TT::KEYWORD, "def"), name),
-            right(
-                tok(TT::LPAR),
-                left(params, pair(tok(TT::RPAR), tok(TT::COLON))),
+            pair(
+                right(token(TT::KEYWORD, "def"), name),
+                right(
+                    tok(TT::LPAR),
+                    left(params, pair(tok(TT::RPAR), tok(TT::COLON))),
+                ),
             ),
+            block,
         ),
-        block,
     )
-    .map(|((n, p), b)| FunctionDeclaration {
+    .map(|(a, ((n, p), b))| FunctionDeclaration {
         name: n,
         parameters: p,
         code: b,
+        is_async: a.is_some(),
     })
     .parse(input)
 }
@@ -772,45 +780,47 @@ fn param_no_default_star_annotation(input: &[Token]) -> ParseResult<Parameter> {
 //     | param default ',' TYPE_COMMENT?
 //     | param default TYPE_COMMENT? &')'
 fn param_with_default(input: &[Token]) -> ParseResult<Parameter> {
-    left(pair(param, default), tok(TT::COMMA))
-        .or(left(pair(param, default), lookahead(tok(TT::RPAR))))
-        .map(|(n, e)| Parameter::with_default(n, e))
-        .parse(input)
+    pair(
+        pair(param, default),
+        right(tok(TT::COMMA), maybe(tok(TT::TYPE_COMMENT)))
+            .or(left(maybe(tok(TT::TYPE_COMMENT)), lookahead(tok(TT::RPAR)))),
+    )
+    .map(|((mut p, d), t)| {
+        p.default = Some(d);
+        p.type_comment = t.map(|s| s.lexeme);
+        p
+    })
+    .parse(input)
 }
 
 // param_maybe_default:
 //     | param default? ',' TYPE_COMMENT?
 //     | param default? TYPE_COMMENT? &')'
 fn param_maybe_default(input: &[Token]) -> ParseResult<Parameter> {
-    pair(param, left(maybe(default), tok(TT::COMMA)))
-        .map(|(n, o)| {
-            if let Some(d) = o {
-                Parameter::with_default(n, d)
-            } else {
-                n.into()
-            }
-        })
-        .or(
-            pair(param, left(maybe(default), lookahead(tok(TT::RPAR)))).map(|(n, o)| {
-                if let Some(d) = o {
-                    Parameter::with_default(n, d)
-                } else {
-                    n.into()
-                }
-            }),
-        )
-        .parse(input)
+    pair(
+        pair(param, maybe(default)),
+        right(tok(TT::COMMA), maybe(tok(TT::TYPE_COMMENT)))
+            .or(left(maybe(tok(TT::TYPE_COMMENT)), lookahead(tok(TT::RPAR)))),
+    )
+    .map(|((mut p, d), t)| {
+        p.default = d;
+        p.type_comment = t.map(|s| s.lexeme);
+        p
+    })
+    .parse(input)
 }
 
 // param: NAME annotation?
-fn param(input: &[Token]) -> ParseResult<Name> {
-    name.parse(input)
+fn param(input: &[Token]) -> ParseResult<Parameter> {
+    pair(name, maybe(annotation))
+        .map(|(n, a)| Parameter::with_annotation(n, a))
+        .parse(input)
 }
 
 // param_star_annotation: NAME star_annotation
 fn param_star_annotation(input: &[Token]) -> ParseResult<Parameter> {
     pair(name, star_annotation)
-        .map(|(n, a)| Parameter::with_annotation(n, a))
+        .map(|(n, a)| Parameter::with_annotation(n, Some(a)))
         .parse(input)
 }
 
@@ -892,19 +902,30 @@ fn while_stmt(input: &[Token]) -> ParseResult<Statement> {
 // for_stmt:
 //     | 'for' star_targets 'in' ~ star_expressions ':' [TYPE_COMMENT] block [else_block]
 //     | ASYNC 'for' star_targets 'in' ~ star_expressions ':' [TYPE_COMMENT] block [else_block]
-// TODO: type comment, async, implement ~
 fn for_stmt(input: &[Token]) -> ParseResult<Statement> {
     pair(
-        left(
-            right(token(TT::KEYWORD, "for"), star_targets),
-            token(TT::KEYWORD, "in"),
-        ),
+        maybe(token(TT::KEYWORD, "async")),
         pair(
-            left(star_expressions, tok(TT::COLON)),
-            pair(block, maybe(else_block)),
+            left(
+                right(token(TT::KEYWORD, "for"), star_targets),
+                token(TT::KEYWORD, "in"),
+            ),
+            pair(
+                left(star_expressions, tok(TT::COLON)),
+                pair(pair(maybe(tok(TT::TYPE_COMMENT)), block), maybe(else_block)),
+            ),
         ),
     )
-    .map(|(tgt, (expr, (blck, els)))| Statement::For(tgt, expr, blck, els))
+    .map(|(a, (tgt, (expr, ((tc, blck), els))))| {
+        Statement::For(
+            tgt,
+            expr,
+            blck,
+            els,
+            tc.map(|s| Expression::TypeComment(s.lexeme)),
+            a.is_some(),
+        )
+    })
     .parse(input)
 }
 
@@ -916,21 +937,36 @@ fn for_stmt(input: &[Token]) -> ParseResult<Statement> {
 //     | 'with' ','.with_item+ ':' [TYPE_COMMENT] block
 //     | ASYNC 'with' '(' ','.with_item+ ','? ')' ':' block
 //     | ASYNC 'with' ','.with_item+ ':' [TYPE_COMMENT] block
-
-// TODO: typing, async
 fn with_stmt(input: &[Token]) -> ParseResult<Statement> {
     pair(
-        right(
-            pair(token(TT::KEYWORD, "with"), tok(TT::LPAR)),
-            left(sep_by(with_item, TT::COMMA), maybe(tok(TT::COMMA))),
+        maybe(token(TT::KEYWORD, "async")),
+        pair(
+            right(
+                pair(token(TT::KEYWORD, "with"), tok(TT::LPAR)),
+                left(sep_by(with_item, TT::COMMA), maybe(tok(TT::COMMA))),
+            ),
+            right(pair(tok(TT::RPAR), tok(TT::COLON)), block),
         ),
-        right(pair(tok(TT::RPAR), tok(TT::COLON)), block),
     )
-    .or(right(
-        pair(token(TT::KEYWORD, "with"), tok(TT::COLON)),
-        pair(sep_by(with_item, TT::COMMA), right(tok(TT::COLON), block)),
+    .map(|(a, (w, b))| (a, (w, (None, b))))
+    .or(pair(
+        maybe(token(TT::KEYWORD, "async")),
+        right(
+            pair(token(TT::KEYWORD, "with"), tok(TT::COLON)),
+            pair(
+                sep_by(with_item, TT::COMMA),
+                right(tok(TT::COLON), pair(maybe(tok(TT::TYPE_COMMENT)), block)),
+            ),
+        ),
     ))
-    .map(|(w, b)| Statement::With(w, b))
+    .map(|(a, (w, (t, b)))| {
+        Statement::With(
+            w,
+            b,
+            t.map(|s| Expression::TypeComment(s.lexeme)),
+            a.is_some(),
+        )
+    })
     .parse(input)
 }
 
@@ -1501,7 +1537,6 @@ fn expressions(input: &[Token]) -> ParseResult<Vec<Expression>> {
 //     | disjunction 'if' disjunction 'else' expression
 //     | disjunction
 //     | lambdef
-// TODO: lambda
 fn expression(input: &[Token]) -> ParseResult<Expression> {
     pair(
         disjunction,
@@ -2421,8 +2456,7 @@ fn string(input: &[Token]) -> ParseResult<Token> {
 
 // strings: (fstring|string)+
 fn strings(input: &[Token]) -> ParseResult<Expression> {
-    one_or_more(string.map(|t| PyString::Literal(t.lexeme)))
-        // .or(fstring))
+    one_or_more(string.map(|t| PyString::Literal(t.lexeme)).or(fstring))
         .map(Expression::Strings)
         .parse(input)
 }
@@ -2524,16 +2558,18 @@ fn for_if_clauses(input: &[Token]) -> ParseResult<Vec<Expression>> {
 // for_if_clause:
 //     | ASYNC 'for' star_targets 'in' ~ disjunction ('if' disjunction )*
 //     | 'for' star_targets 'in' ~ disjunction ('if' disjunction )*
-// TODO: async
 fn for_if_clause(input: &[Token]) -> ParseResult<Expression> {
     pair(
+        maybe(token(TT::KEYWORD, "async")),
         pair(
-            right(token(TT::KEYWORD, "for"), star_targets),
-            right(token(TT::KEYWORD, "in"), disjunction),
+            pair(
+                right(token(TT::KEYWORD, "for"), star_targets),
+                right(token(TT::KEYWORD, "in"), disjunction),
+            ),
+            zero_or_more(right(token(TT::KEYWORD, "if"), disjunction)),
         ),
-        zero_or_more(right(token(TT::KEYWORD, "if"), disjunction)),
     )
-    .map(|((tgt, set), ifs)| Expression::ForIfClause(tgt, Box::new(set), ifs))
+    .map(|(a, ((tgt, set), ifs))| Expression::ForIfClause(tgt, Box::new(set), ifs, a.is_some()))
     .parse(input)
 }
 
