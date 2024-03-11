@@ -64,6 +64,13 @@ pub(super) trait Parser<'a, Output> {
     {
         BoxedParser::new(pred(self, predicate))
     }
+    fn discard(self) -> BoxedParser<'a, ()>
+    where
+        Self: Sized + 'a,
+        Output: 'a,
+    {
+        BoxedParser::new(map(self, |_| ()))
+    }
     fn or(self, parser: impl Parser<'a, Output> + 'a) -> BoxedParser<'a, Output>
     where
         Self: Sized + 'a,
@@ -193,9 +200,7 @@ pub(super) fn maybe<'a, R>(parser: impl Parser<'a, R>) -> impl Parser<'a, Option
     }
 }
 
-pub(super) fn tok(
-    expected_type: TokenType,
-) -> impl Fn(&[Token]) -> ParseResult<Token> {
+pub(super) fn tok(expected_type: TokenType) -> impl Fn(&[Token]) -> ParseResult<Token> {
     move |input| match input.first() {
         Some(token) if token.typ == expected_type => ParseResult::Ok((token.clone(), &input[1..])),
         _ => ParseResult::Err,
@@ -214,18 +219,14 @@ pub(super) fn token(
     }
 }
 
-pub(super) fn sep_by<'a, R> (
-    parser: impl Parser<'a, R>,
-    sep: TokenType,
-) -> impl Parser<'a, Vec<R>> {
+pub(super) fn sep_by<'a, R>(parser: impl Parser<'a, R>, sep: TokenType) -> impl Parser<'a, Vec<R>> {
     move |input| {
         if let ParseResult::Ok((first, rest)) = parser.parse(input) {
             let mut result = Vec::new();
             let mut tmp_input = rest;
             result.push(first);
-            while let ParseResult::Ok((next, rest)) = tok(sep)
-                .parse(tmp_input)
-                .and_then(|(_, s)| parser.parse(s))
+            while let ParseResult::Ok((next, rest)) =
+                tok(sep).parse(tmp_input).and_then(|(_, s)| parser.parse(s))
             {
                 tmp_input = rest;
                 result.push(next)
@@ -237,20 +238,16 @@ pub(super) fn sep_by<'a, R> (
 }
 
 pub(super) fn not<'a, R>(parser: impl Parser<'a, R>) -> impl Parser<'a, ()> {
-    move |input| {
-        match parser.parse(input) {
-            ParseResult::Ok(_) => ParseResult::Err,
-            ParseResult::Err => ParseResult::Ok(((), input)),
-        }
+    move |input| match parser.parse(input) {
+        ParseResult::Ok(_) => ParseResult::Err,
+        ParseResult::Err => ParseResult::Ok(((), input)),
     }
 }
 
 pub(super) fn lookahead<'a, R>(parser: impl Parser<'a, R>) -> impl Parser<'a, ()> {
-    move |input| {
-        match parser.parse(input) {
-            ParseResult::Ok(_) => ParseResult::Ok(((), input)),
-            ParseResult::Err => ParseResult::Err,
-        }
+    move |input| match parser.parse(input) {
+        ParseResult::Ok(_) => ParseResult::Ok(((), input)),
+        ParseResult::Err => ParseResult::Err,
     }
 }
 

@@ -169,7 +169,7 @@ fn simple_stmts(input: &[Token]) -> ParseResult<Vec<Statement>> {
 //     | nonlocal_stmt
 fn simple_stmt(input: &[Token]) -> ParseResult<Statement> {
     assignment
-        // .or(type_alias)
+        .or(type_alias)
         .or(star_expressions.map(Statement::Expressions))
         .or(return_stmt)
         .or(import_stmt)
@@ -1161,48 +1161,6 @@ fn literal_expr(input: &[Token]) -> ParseResult<Expression> {
         .parse(input)
 }
 
-// // complex_number:
-// //     | signed_real_number '+' imaginary_number
-// //     | signed_real_number '-' imaginary_number
-// fn complex_number(input: &[Token]) -> ParseResult<Expression> {
-//     pair(left(signed_real_number, tok(TT::PLUS)), imaginary_number)
-//         .map(|(re, im)| Expression::Number(Number::Complex(re, im)))
-//         .or(
-//             pair(left(signed_real_number, tok(TT::MINUS)), imaginary_number)
-//                 .map(|(re, im)| Expression::Number(Number::Complex(re, -im))),
-//         )
-//         .parse(input)
-// }
-
-// // signed_number:
-// //     | NUMBER
-// //     | '-' NUMBER
-// fn signed_number(input: &[Token]) -> ParseResult<Expression> {
-//     number.map(Expression::Number).parse(input)
-// }
-
-// // signed_real_number:
-// //     | real_number
-// //     | '-' real_number
-// fn signed_real_number(input: &[Token]) -> ParseResult<Expression> {
-//     real_number.parse(input)
-// }
-
-// // real_number:
-// //     | NUMBER
-// fn real_number(input: &[Token]) -> ParseResult<Expression> {
-//     tok(TT::NUMBER)
-//         .pred(|t| !matches!(t.clone().into(), Number::Complex(_, _)))
-//         .map(|t| Expression::Number(t.into()))
-//         .parse(input)
-// }
-
-// // imaginary_number:
-// //     | NUMBER
-// fn imaginary_number(input: &[Token]) -> ParseResult<Expression> {
-//     real_number.parse(input)
-// }
-
 // capture_pattern:
 //     | pattern_capture_target
 fn capture_pattern(input: &[Token]) -> ParseResult<Pattern> {
@@ -1556,7 +1514,7 @@ fn expression(input: &[Token]) -> ParseResult<Expression> {
         Some((c, e)) => Expression::Ternary(Box::new(c), Box::new(t), Box::new(e)),
         None => t,
     })
-    // .or(lambdef)
+    .or(lambdef)
     .parse(input)
 }
 
@@ -2190,10 +2148,18 @@ fn group(input: &[Token]) -> ParseResult<Expression> {
 
 // lambdef:
 //     | 'lambda' [lambda_params] ':' expression
+fn lambdef(input: &[Token]) -> ParseResult<Expression> {
+    pair(
+        right(token(TT::KEYWORD, "lambda"), maybe(lambda_parameters)),
+        expression,
+    )
+    .map(|(p, b)| Expression::Lambda(p.unwrap_or(vec![]), Box::new(b)))
+    .parse(input)
+}
 
 // lambda_params:
 //     | lambda_parameters
-
+//
 // # lambda_parameters etc. duplicates parameters but without annotations
 // # or type comments, and if there's no comma after a parameter, we expect
 // # a colon, not a close parenthesis.  (For more, see parameters above.)
@@ -2204,33 +2170,181 @@ fn group(input: &[Token]) -> ParseResult<Expression> {
 //     | lambda_param_no_default+ lambda_param_with_default* [lambda_star_etc]
 //     | lambda_param_with_default+ [lambda_star_etc]
 //     | lambda_star_etc
+fn lambda_parameters(input: &[Token]) -> ParseResult<Vec<Parameter>> {
+    pair(
+        pair(
+            lambda_slash_no_default,
+            zero_or_more(lambda_param_no_default),
+        ),
+        pair(
+            zero_or_more(lambda_param_with_default),
+            maybe(lambda_star_etc),
+        ),
+    )
+    .map(|((mut p, q), (r, s))| {
+        p.extend(q);
+        p.extend(r);
+        p.extend(s.unwrap_or(vec![]));
+        p
+    })
+    .or(pair(
+        pair(
+            lambda_slash_with_default,
+            zero_or_more(lambda_param_with_default),
+        ),
+        maybe(lambda_star_etc),
+    )
+    .map(|((mut p, q), r)| {
+        p.extend(q);
+        p.extend(r.unwrap_or(vec![]));
+        p
+    }))
+    .or(pair(
+        pair(
+            one_or_more(lambda_param_no_default),
+            zero_or_more(lambda_param_with_default),
+        ),
+        maybe(lambda_star_etc),
+    )
+    .map(|((mut p, q), r)| {
+        p.extend(q);
+        p.extend(r.unwrap_or(vec![]));
+        p
+    }))
+    .or(pair(
+        one_or_more(lambda_param_with_default),
+        maybe(lambda_star_etc),
+    )
+    .map(|(mut p, q)| {
+        p.extend(q.unwrap_or(vec![]));
+        p
+    }))
+    .or(lambda_star_etc)
+    .parse(input)
+}
 
 // lambda_slash_no_default:
 //     | lambda_param_no_default+ '/' ','
 //     | lambda_param_no_default+ '/' &':'
+fn lambda_slash_no_default(input: &[Token]) -> ParseResult<Vec<Parameter>> {
+    left(
+        left(one_or_more(lambda_param_no_default), tok(TT::SLASH)),
+        tok(TT::COMMA).discard().or(lookahead(tok(TT::COLON))),
+    )
+    .parse(input)
+}
 
 // lambda_slash_with_default:
 //     | lambda_param_no_default* lambda_param_with_default+ '/' ','
 //     | lambda_param_no_default* lambda_param_with_default+ '/' &':'
+fn lambda_slash_with_default(input: &[Token]) -> ParseResult<Vec<Parameter>> {
+    left(
+        left(
+            pair(
+                zero_or_more(lambda_param_no_default),
+                one_or_more(lambda_param_with_default),
+            ),
+            tok(TT::SLASH),
+        ),
+        tok(TT::COMMA).discard().or(lookahead(tok(TT::COLON))),
+    )
+    .map(|(mut p, q)| {
+        p.extend(q);
+        p
+    })
+    .parse(input)
+}
 
 // lambda_star_etc:
 //     | '*' lambda_param_no_default lambda_param_maybe_default* [lambda_kwds]
 //     | '*' ',' lambda_param_maybe_default+ [lambda_kwds]
 //     | lambda_kwds
+fn lambda_star_etc(input: &[Token]) -> ParseResult<Vec<Parameter>> {
+    pair(
+        right(tok(TT::STAR), lambda_param_no_default),
+        pair(zero_or_more(lambda_param_maybe_default), maybe(lambda_kwds)),
+    )
+    .map(|(mut p, (mut q, r))| {
+        p.starred = true;
+        q.insert(0, p);
+        if let Some(kwds) = r {
+            q.push(kwds);
+        }
+        q
+    })
+    .or(pair(
+        right(
+            pair(tok(TT::STAR), tok(TT::COMMA)),
+            one_or_more(lambda_param_maybe_default),
+        ),
+        maybe(lambda_kwds),
+    )
+    .map(|(mut p, q)| {
+        if let Some(kwds) = q {
+            p.push(kwds);
+        }
+        p
+    }))
+    .or(lambda_kwds.map(|k| vec![k]))
+    .parse(input)
+}
 
 // lambda_kwds:
 //     | '**' lambda_param_no_default
+fn lambda_kwds(input: &[Token]) -> ParseResult<Parameter> {
+    right(tok(TT::DOUBLESTAR), lambda_param_no_default)
+        .map(|mut p| {
+            p.double_starred = true;
+            p
+        })
+        .parse(input)
+}
 
 // lambda_param_no_default:
 //     | lambda_param ','
 //     | lambda_param &':'
+fn lambda_param_no_default(input: &[Token]) -> ParseResult<Parameter> {
+    left(
+        lambda_param,
+        tok(TT::COMMA).discard().or(lookahead(tok(TT::COLON))),
+    )
+    .parse(input)
+}
+
 // lambda_param_with_default:
 //     | lambda_param default ','
 //     | lambda_param default &':'
+fn lambda_param_with_default(input: &[Token]) -> ParseResult<Parameter> {
+    left(
+        pair(lambda_param, default),
+        tok(TT::COMMA).discard().or(lookahead(tok(TT::COLON))),
+    )
+    .map(|(mut l, d)| {
+        l.default = Some(d);
+        l
+    })
+    .parse(input)
+}
+
 // lambda_param_maybe_default:
 //     | lambda_param default? ','
 //     | lambda_param default? &':'
+fn lambda_param_maybe_default(input: &[Token]) -> ParseResult<Parameter> {
+    left(
+        pair(lambda_param, maybe(default)),
+        tok(TT::COMMA).discard().or(lookahead(tok(TT::COLON))),
+    )
+    .map(|(mut l, d)| {
+        l.default = d;
+        l
+    })
+    .parse(input)
+}
+
 // lambda_param: NAME
+fn lambda_param(input: &[Token]) -> ParseResult<Parameter> {
+    name.map(|n| n.into()).parse(input)
+}
 
 // # LITERALS
 // # ========
@@ -2238,42 +2352,65 @@ fn group(input: &[Token]) -> ParseResult<Expression> {
 // fstring_middle:
 //     | fstring_replacement_field
 //     | FSTRING_MIDDLE
-fn fstring_middle(_input: &[Token]) -> ParseResult<PyString> {
-    todo!()
+fn fstring_middle(input: &[Token]) -> ParseResult<FString> {
+    fstring_replacement_field
+        .map(|f| FString::Interpolated(f))
+        .or(tok(TT::FSTRING_MIDDLE).map(|f| FString::Literal(f.lexeme)))
+        .parse(input)
 }
 
 // fstring_replacement_field:
 //     | '{' (yield_expr | star_expressions) '='? [fstring_conversion] [fstring_full_format_spec] '}'
-fn fstring_replacement_field(_input: &[Token]) -> ParseResult<Expression> {
-    todo!()
+fn fstring_replacement_field(input: &[Token]) -> ParseResult<FStringReplacement> {
+    pair(
+        pair(
+            right(
+                tok(TT::LBRACE),
+                yield_expr.map(|e| vec![e]).or(star_expressions),
+            ),
+            pair(maybe(tok(TT::EQUAL)), maybe(fstring_conversion)),
+        ),
+        left(maybe(fstring_full_format_spec), tok(TT::RBRACE)),
+    )
+    .map(|((exprs, (dbg, conversion)), fmt)| FStringReplacement {
+        exprs,
+        debug: dbg.is_some(),
+        conversion,
+        format_specs: fmt.unwrap_or(vec![]),
+    })
+    .parse(input)
 }
 
 // fstring_conversion:
 //     | "!" NAME
-fn fstring_conversion(_input: &[Token]) -> ParseResult<Expression> {
-    todo!()
+fn fstring_conversion(input: &[Token]) -> ParseResult<Name> {
+    right(tok(TT::EXCLAMATION), name).parse(input)
 }
 
 // fstring_full_format_spec:
 //     | ':' fstring_format_spec*
-fn fstring_full_format_spec(_input: &[Token]) -> ParseResult<Expression> {
-    todo!()
+fn fstring_full_format_spec(input: &[Token]) -> ParseResult<Vec<Expression>> {
+    right(tok(TT::COLON), zero_or_more(fstring_format_spec)).parse(input)
 }
 
 // fstring_format_spec:
 //     | FSTRING_MIDDLE
 //     | fstring_replacement_field
-fn fstring_format_spec(_input: &[Token]) -> ParseResult<Expression> {
-    todo!()
+fn fstring_format_spec(input: &[Token]) -> ParseResult<Expression> {
+    tok(TT::FSTRING_MIDDLE)
+        .map(|t| Expression::Strings(vec![PyString::Literal(t.lexeme)]))
+        .or(fstring_replacement_field.map(Expression::FStringReplacement))
+        .parse(input)
 }
 
 // fstring:
 //     | FSTRING_START fstring_middle* FSTRING_END
-fn fstring(input: &[Token]) -> ParseResult<Vec<PyString>> {
+fn fstring(input: &[Token]) -> ParseResult<PyString> {
     left(
         right(tok(TT::FSTRING_START), zero_or_more(fstring_middle)),
         tok(TT::FSTRING_END),
     )
+    .map(PyString::FString)
     .parse(input)
 }
 

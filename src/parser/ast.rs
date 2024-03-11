@@ -180,6 +180,7 @@ pub enum Expression {
     Set(Vec<Expression>),
     SetComprehension(Box<Expression>, Vec<Expression>),
     KeywordArgument(Name, Box<Expression>),
+    FStringReplacement(FStringReplacement),
     Name(Name),
     Number(Number),
     Ellipsis,
@@ -190,6 +191,7 @@ pub enum Expression {
     TypeBound(TypeBound),
     Pattern(Box<Pattern>),
     Attribute(Vec<Name>),
+    Lambda(Vec<Parameter>, Box<Expression>),
     PrimaryGenexp(Box<Expression>, Box<Expression>), // ???
 }
 
@@ -220,11 +222,22 @@ pub struct TypeBound {
 #[derive(Debug, Clone)]
 pub enum PyString {
     Literal(String),
-    FString(FString),
+    FString(Vec<FString>),
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct FString;
+pub(crate) enum FString {
+    Literal(String),
+    Interpolated(FStringReplacement),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FStringReplacement {
+    pub(super) exprs: Vec<Expression>,
+    pub(super) debug: bool,
+    pub(super) conversion: Option<Name>,
+    pub(super) format_specs: Vec<Expression>,
+}
 
 #[derive(Debug, Clone)]
 pub enum Number {
