@@ -122,7 +122,7 @@ impl Parameter {
         Self {
             name,
             default: None,
-            annotation: annotation,
+            annotation,
             starred: false,
             double_starred: false,
             type_comment: None,
@@ -240,13 +240,13 @@ pub enum PyString {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum FString {
+pub enum FString {
     Literal(String),
     Interpolated(FStringReplacement),
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct FStringReplacement {
+pub struct FStringReplacement {
     pub(super) exprs: Vec<Expression>,
     pub(super) debug: bool,
     pub(super) conversion: Option<Name>,
@@ -264,28 +264,28 @@ impl From<Token> for Number {
     fn from(value: Token) -> Self {
         let mut value = value.lexeme;
         if DECNUMBER.is_match(&value) {
-            value = value.replace("_", "");
-            return Self::Int(i64::from_str_radix(&value, 10).unwrap());
+            value = value.replace('_', "");
+            return Self::Int(value.parse::<i64>().unwrap());
         }
         if HEXNUMBER.is_match(&value) {
-            value = value.replace("_", "");
+            value = value.replace('_', "");
             return Self::Int(i64::from_str_radix(&value, 16).unwrap());
         }
         if OCTNUMBER.is_match(&value) {
-            value = value.replace("_", "");
+            value = value.replace('_', "");
             return Self::Int(i64::from_str_radix(&value, 8).unwrap());
         }
         if BINNUMBER.is_match(&value) {
-            value = value.replace("_", "");
+            value = value.replace('_', "");
             return Self::Int(i64::from_str_radix(&value, 2).unwrap());
         }
         if FLOATNUMBER.is_match(&value) {
             return Self::Float(value.parse().unwrap());
         }
         if IMAGNUMBER.is_match(&value) {
-            value = value.replace("_", "");
-            value = value.replace("j", "");
-            value = value.replace("J", "");
+            value = value.replace('_', "");
+            value = value.replace('j', "");
+            value = value.replace('J', "");
             return Self::Complex(0., value.parse().unwrap());
         }
         unreachable!()

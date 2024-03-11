@@ -104,8 +104,6 @@ pub(crate) enum TokenType {
     ELLIPSIS,
     COLONEQUAL,
     EXCLAMATION,
-    OP,
-    TYPE_IGNORE,
     TYPE_COMMENT,
     SOFT_KEYWORD,
     KEYWORD,
@@ -235,12 +233,6 @@ macro_rules! group {
     ($($ts:expr),+) => {{
         concatcp!(r"(", alternative!($($ts),+), ")")
     }}
-}
-
-macro_rules! any {
-    ($($ts:expr),+) => {
-        concatcp!(group!(($($ts),+)), r"*")
-    }
 }
 
 macro_rules! maybe {

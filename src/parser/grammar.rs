@@ -546,7 +546,7 @@ fn class_def_raw(input: &[Token]) -> ParseResult<ClassDefinition> {
         ancestors: ancestors.unwrap_or(Arguments::empty()),
         body,
         decorators: vec![],
-        type_params: ts.unwrap_or(vec![]),
+        type_params: ts.unwrap_or_default(),
     })
     .parse(input)
 }
@@ -614,7 +614,7 @@ fn parameters(input: &[Token]) -> ParseResult<Vec<Parameter>> {
     .map(|((mut u, v), (w, o))| {
         u.extend(v);
         u.extend(w);
-        u.extend(o.unwrap_or(vec![]));
+        u.extend(o.unwrap_or_default());
         u
     })
     .or(pair(
@@ -623,7 +623,7 @@ fn parameters(input: &[Token]) -> ParseResult<Vec<Parameter>> {
     )
     .map(|((mut u, v), o)| {
         u.extend(v);
-        u.extend(o.unwrap_or(vec![]));
+        u.extend(o.unwrap_or_default());
         u
     }))
     .or(pair(
@@ -635,12 +635,12 @@ fn parameters(input: &[Token]) -> ParseResult<Vec<Parameter>> {
     )
     .map(|((mut u, v), o)| {
         u.extend(v);
-        u.extend(o.unwrap_or(vec![]));
+        u.extend(o.unwrap_or_default());
         u
     }))
     .or(
         pair(one_or_more(param_with_default), maybe(star_etc)).map(|(mut u, o)| {
-            u.extend(o.unwrap_or(vec![]));
+            u.extend(o.unwrap_or_default());
             u
         }),
     )
@@ -763,7 +763,6 @@ fn kwds(input: &[Token]) -> ParseResult<Parameter> {
 fn param_no_default(input: &[Token]) -> ParseResult<Parameter> {
     left(param, tok(TT::COMMA))
         .or(left(param, lookahead(tok(TT::RPAR))))
-        .map(|n| n.into())
         .parse(input)
 }
 
@@ -1085,7 +1084,7 @@ fn subject_expr(input: &[Token]) -> ParseResult<Vec<Expression>> {
     )
     .map(|(e, es)| {
         let mut exprs = vec![e];
-        exprs.extend(es.unwrap_or(vec![]));
+        exprs.extend(es.unwrap_or_default());
         exprs
     })
     .or(named_expression.map(|e| vec![e]))
@@ -1272,7 +1271,7 @@ fn sequence_pattern(input: &[Token]) -> ParseResult<Pattern> {
         tok(TT::LPAR),
         left(maybe(open_sequence_pattern), tok(TT::RPAR)),
     ))
-    .map(|s| Pattern::Sequence(s.unwrap_or(vec![])))
+    .map(|s| Pattern::Sequence(s.unwrap_or_default()))
     .parse(input)
 }
 
@@ -1286,7 +1285,7 @@ fn open_sequence_pattern(input: &[Token]) -> ParseResult<Vec<Pattern>> {
     .map(|(u, v)| {
         let mut seq: Vec<Pattern> = Vec::new();
         seq.push(u);
-        seq.extend(v.unwrap_or(vec![]));
+        seq.extend(v.unwrap_or_default());
         seq
     })
     .parse(input)
@@ -1441,7 +1440,7 @@ fn type_alias(input: &[Token]) -> ParseResult<Statement> {
         right(token(TT::SOFT_KEYWORD, "type"), name),
         pair(left(maybe(type_params), tok(TT::EQUAL)), expression),
     )
-    .map(|(n, (t, e))| Statement::Type(n, t.unwrap_or(vec![]), Box::new(e)))
+    .map(|(n, (t, e))| Statement::Type(n, t.unwrap_or_default(), Box::new(e)))
     .parse(input)
 }
 
@@ -2188,7 +2187,7 @@ fn lambdef(input: &[Token]) -> ParseResult<Expression> {
         right(token(TT::KEYWORD, "lambda"), maybe(lambda_parameters)),
         expression,
     )
-    .map(|(p, b)| Expression::Lambda(p.unwrap_or(vec![]), Box::new(b)))
+    .map(|(p, b)| Expression::Lambda(p.unwrap_or_default(), Box::new(b)))
     .parse(input)
 }
 
@@ -2219,7 +2218,7 @@ fn lambda_parameters(input: &[Token]) -> ParseResult<Vec<Parameter>> {
     .map(|((mut p, q), (r, s))| {
         p.extend(q);
         p.extend(r);
-        p.extend(s.unwrap_or(vec![]));
+        p.extend(s.unwrap_or_default());
         p
     })
     .or(pair(
@@ -2231,7 +2230,7 @@ fn lambda_parameters(input: &[Token]) -> ParseResult<Vec<Parameter>> {
     )
     .map(|((mut p, q), r)| {
         p.extend(q);
-        p.extend(r.unwrap_or(vec![]));
+        p.extend(r.unwrap_or_default());
         p
     }))
     .or(pair(
@@ -2243,7 +2242,7 @@ fn lambda_parameters(input: &[Token]) -> ParseResult<Vec<Parameter>> {
     )
     .map(|((mut p, q), r)| {
         p.extend(q);
-        p.extend(r.unwrap_or(vec![]));
+        p.extend(r.unwrap_or_default());
         p
     }))
     .or(pair(
@@ -2251,7 +2250,7 @@ fn lambda_parameters(input: &[Token]) -> ParseResult<Vec<Parameter>> {
         maybe(lambda_star_etc),
     )
     .map(|(mut p, q)| {
-        p.extend(q.unwrap_or(vec![]));
+        p.extend(q.unwrap_or_default());
         p
     }))
     .or(lambda_star_etc)
@@ -2389,7 +2388,7 @@ fn lambda_param(input: &[Token]) -> ParseResult<Parameter> {
 //     | FSTRING_MIDDLE
 fn fstring_middle(input: &[Token]) -> ParseResult<FString> {
     fstring_replacement_field
-        .map(|f| FString::Interpolated(f))
+        .map(FString::Interpolated)
         .or(tok(TT::FSTRING_MIDDLE).map(|f| FString::Literal(f.lexeme)))
         .parse(input)
 }
@@ -2411,7 +2410,7 @@ fn fstring_replacement_field(input: &[Token]) -> ParseResult<FStringReplacement>
         exprs,
         debug: dbg.is_some(),
         conversion,
-        format_specs: fmt.unwrap_or(vec![]),
+        format_specs: fmt.unwrap_or_default(),
     })
     .parse(input)
 }
@@ -2489,7 +2488,7 @@ fn tuple(input: &[Token]) -> ParseResult<Expression> {
         let mut v = Vec::new();
         if let Some((e, es)) = t {
             v.push(e);
-            v.extend(es.unwrap_or(vec![]));
+            v.extend(es.unwrap_or_default());
         }
         Expression::Tuple(v)
     })
