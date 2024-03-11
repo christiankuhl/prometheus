@@ -53,34 +53,43 @@
 // #   Commit to the current alternative, even if it fails to parse.
 // #
 
+use std::cell::RefCell;
+
 use super::ast::*;
 use super::combinators::*;
 use super::tokenizer::{Token, TokenType as TT};
 
-pub fn parse(input: &[Token]) -> ParseResult<Vec<Statement>> {
-    file_.parse(input)
+pub fn parse(input: &[Token]) -> (Vec<Statement>, Vec<Error>) {
+    let errors = RefCell::new(Vec::new());
+    let input = ParserInput::new(input, ParserState::new(&errors));
+    let stmts = file_.parse(input).expect("Parser shall not fail.");
+    (stmts, errors.into_inner())
 }
 
-pub fn parse_interactive(input: &[Token]) -> ParseResult<Vec<Statement>> {
-    interactive.parse(input)
+pub fn parse_interactive(input: &[Token]) -> (Vec<Statement>, Vec<Error>) {
+    let errors = RefCell::new(Vec::new());
+    let input = ParserInput::new(input, ParserState::new(&errors));
+    let stmts = interactive.parse(input).expect("Parser shall not fail.");
+    (stmts, errors.into_inner())
+
 }
 
 // # STARTING RULES
 // # ==============
 // file: [statements] ENDMARKER
-fn file_(input: &[Token]) -> ParseResult<Vec<Statement>> {
+fn file_(input: ParserInput) -> ParseResult<Vec<Statement>> {
     left(maybe(statements), tok(TT::ENDMARKER))
         .map(|v| v.unwrap_or_default())
         .parse(input)
 }
 
 // interactive: statement_newline
-fn interactive(input: &[Token]) -> ParseResult<Vec<Statement>> {
+fn interactive(input: ParserInput) -> ParseResult<Vec<Statement>> {
     statement_newline.parse(input)
 }
 
 // eval: expressions NEWLINE* ENDMARKER
-fn eval(input: &[Token]) -> ParseResult<Vec<Expression>> {
+fn eval(input: ParserInput) -> ParseResult<Vec<Expression>> {
     left(
         expressions,
         pair(zero_or_more(tok(TT::NEWLINE)), tok(TT::ENDMARKER)),
@@ -93,31 +102,31 @@ fn eval(input: &[Token]) -> ParseResult<Vec<Expression>> {
 // # GENERAL STATEMENTS
 // # ==================
 
-fn pass(input: &[Token]) -> ParseResult<Statement> {
+fn pass(input: ParserInput) -> ParseResult<Statement> {
     token(TT::KEYWORD, "pass")
         .map(|_| Statement::Pass)
         .parse(input)
 }
 
-fn break_(input: &[Token]) -> ParseResult<Statement> {
+fn break_(input: ParserInput) -> ParseResult<Statement> {
     token(TT::KEYWORD, "break")
         .map(|_| Statement::Break)
         .parse(input)
 }
 
-fn continue_(input: &[Token]) -> ParseResult<Statement> {
+fn continue_(input: ParserInput) -> ParseResult<Statement> {
     token(TT::KEYWORD, "continue")
         .map(|_| Statement::Continue)
         .parse(input)
 }
 
 // statements: statement+
-fn statements(input: &[Token]) -> ParseResult<Vec<Statement>> {
+fn statements(input: ParserInput) -> ParseResult<Vec<Statement>> {
     one_or_more(statement).map(|s| s.concat()).parse(input)
 }
 
 // statement: compound_stmt  | simple_stmts
-fn statement(input: &[Token]) -> ParseResult<Vec<Statement>> {
+fn statement(input: ParserInput) -> ParseResult<Vec<Statement>> {
     compound_stmt
         .map(|cs| vec![cs])
         .or(simple_stmts)
@@ -128,7 +137,7 @@ fn statement(input: &[Token]) -> ParseResult<Vec<Statement>> {
 //     | simple_stmts
 //     | NEWLINE
 //     | ENDMARKER
-fn statement_newline(input: &[Token]) -> ParseResult<Vec<Statement>> {
+fn statement_newline(input: ParserInput) -> ParseResult<Vec<Statement>> {
     left(compound_stmt, tok(TT::NEWLINE))
         .map(|_| vec![])
         .or(simple_stmts)
@@ -140,7 +149,7 @@ fn statement_newline(input: &[Token]) -> ParseResult<Vec<Statement>> {
 // simple_stmts:
 //     | simple_stmt !';' NEWLINE  # Not needed, there for speedup
 //     | ';'.simple_stmt+ [';'] NEWLINE
-fn simple_stmts(input: &[Token]) -> ParseResult<Vec<Statement>> {
+fn simple_stmts(input: ParserInput) -> ParseResult<Vec<Statement>> {
     left(simple_stmt, pair(not(tok(TT::SEMI)), tok(TT::NEWLINE)))
         .map(|s| vec![s])
         .or(left(
@@ -167,7 +176,7 @@ fn simple_stmts(input: &[Token]) -> ParseResult<Vec<Statement>> {
 //     | 'continue'
 //     | global_stmt
 //     | nonlocal_stmt
-fn simple_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn simple_stmt(input: ParserInput) -> ParseResult<Statement> {
     assignment
         .or(type_alias)
         .or(star_expressions.map(Statement::Expressions))
@@ -194,7 +203,7 @@ fn simple_stmt(input: &[Token]) -> ParseResult<Statement> {
 //     | try_stmt
 //     | while_stmt
 //     | match_stmt
-fn compound_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn compound_stmt(input: ParserInput) -> ParseResult<Statement> {
     function_def
         .or(if_stmt)
         .or(class_def)
@@ -216,7 +225,7 @@ fn compound_stmt(input: &[Token]) -> ParseResult<Statement> {
 //          | single_subscript_attribute_target) ':' expression ['=' annotated_rhs ]
 //     | (star_targets '=' )+ (yield_expr | star_expressions) !'=' [TYPE_COMMENT]
 //     | single_target augassign ~ (yield_expr | star_expressions)
-fn assignment(input: &[Token]) -> ParseResult<Statement> {
+fn assignment(input: ParserInput) -> ParseResult<Statement> {
     pair(
         pair(left(name, tok(TT::COLON)), expression),
         maybe(right(tok(TT::EQUAL), annotated_rhs)),
@@ -255,7 +264,7 @@ fn assignment(input: &[Token]) -> ParseResult<Statement> {
 }
 
 // annotated_rhs: yield_expr | star_expressions
-fn annotated_rhs(input: &[Token]) -> ParseResult<Vec<Expression>> {
+fn annotated_rhs(input: ParserInput) -> ParseResult<Vec<Expression>> {
     yield_expr
         .map(|e| vec![e])
         .or(star_expressions)
@@ -276,7 +285,7 @@ fn annotated_rhs(input: &[Token]) -> ParseResult<Vec<Expression>> {
 //     | '>>='
 //     | '**='
 //     | '//='
-fn augassign(input: &[Token]) -> ParseResult<Token> {
+fn augassign(input: ParserInput) -> ParseResult<Token> {
     tok(TT::PLUSEQUAL)
         .or(tok(TT::MINEQUAL))
         .or(tok(TT::STAREQUAL))
@@ -295,7 +304,7 @@ fn augassign(input: &[Token]) -> ParseResult<Token> {
 
 // return_stmt:
 //     | 'return' [star_expressions]
-fn return_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn return_stmt(input: ParserInput) -> ParseResult<Statement> {
     right(token(TT::KEYWORD, "return"), star_expressions)
         .map(Statement::Return)
         .parse(input)
@@ -304,7 +313,7 @@ fn return_stmt(input: &[Token]) -> ParseResult<Statement> {
 // raise_stmt:
 //     | 'raise' expression ['from' expression ]
 //     | 'raise'
-fn raise_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn raise_stmt(input: ParserInput) -> ParseResult<Statement> {
     pair(
         right(token(TT::KEYWORD, "raise"), expression),
         maybe(right(token(TT::KEYWORD, "from"), expression)),
@@ -315,14 +324,14 @@ fn raise_stmt(input: &[Token]) -> ParseResult<Statement> {
 }
 
 // global_stmt: 'global' ','.NAME+
-fn global_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn global_stmt(input: ParserInput) -> ParseResult<Statement> {
     right(token(TT::KEYWORD, "global"), sep_by(name, TT::COMMA))
         .map(Statement::Global)
         .parse(input)
 }
 
 // nonlocal_stmt: 'nonlocal' ','.NAME+
-fn nonlocal_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn nonlocal_stmt(input: ParserInput) -> ParseResult<Statement> {
     right(token(TT::KEYWORD, "nonlocal"), sep_by(name, TT::COMMA))
         .map(Statement::Nonlocal)
         .parse(input)
@@ -330,7 +339,7 @@ fn nonlocal_stmt(input: &[Token]) -> ParseResult<Statement> {
 
 // del_stmt:
 //     | 'del' del_targets &(';' | NEWLINE)
-fn del_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn del_stmt(input: ParserInput) -> ParseResult<Statement> {
     left(
         right(token(TT::KEYWORD, "del"), del_targets),
         lookahead(tok(TT::SEMI).or(tok(TT::NEWLINE))),
@@ -340,14 +349,14 @@ fn del_stmt(input: &[Token]) -> ParseResult<Statement> {
 }
 
 // yield_stmt: yield_expr
-fn yield_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn yield_stmt(input: ParserInput) -> ParseResult<Statement> {
     yield_expr
         .map(|e| Statement::Yield(Box::new(e)))
         .parse(input)
 }
 
 // assert_stmt: 'assert' expression [',' expression ]
-fn assert_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn assert_stmt(input: ParserInput) -> ParseResult<Statement> {
     right(
         token(TT::KEYWORD, "assert"),
         pair(expression, maybe(right(tok(TT::COMMA), expression))),
@@ -359,7 +368,7 @@ fn assert_stmt(input: &[Token]) -> ParseResult<Statement> {
 // import_stmt:
 //     | import_name
 //     | import_from
-fn import_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn import_stmt(input: ParserInput) -> ParseResult<Statement> {
     import_name
         .or(import_from.map(|t| vec![t]))
         .map(Statement::Import)
@@ -370,7 +379,7 @@ fn import_stmt(input: &[Token]) -> ParseResult<Statement> {
 // # -----------------
 
 // import_name: 'import' dotted_as_names
-fn import_name(input: &[Token]) -> ParseResult<Vec<Import>> {
+fn import_name(input: ParserInput) -> ParseResult<Vec<Import>> {
     right(token(TT::KEYWORD, "import"), dotted_as_names)
         .map(|ms| {
             ms.iter()
@@ -383,13 +392,13 @@ fn import_name(input: &[Token]) -> ParseResult<Vec<Import>> {
         .parse(input)
 }
 
-fn import_level(input: &[Token]) -> ParseResult<usize> {
+fn import_level(input: ParserInput) -> ParseResult<usize> {
     zero_or_more(tok(TT::DOT).or(tok(TT::ELLIPSIS)))
         .map(count_dots)
         .parse(input)
 }
 
-fn import_level_at_least_one(input: &[Token]) -> ParseResult<usize> {
+fn import_level_at_least_one(input: ParserInput) -> ParseResult<usize> {
     one_or_more(tok(TT::DOT).or(tok(TT::ELLIPSIS)))
         .map(count_dots)
         .parse(input)
@@ -410,7 +419,7 @@ fn count_dots(tokens: Vec<Token>) -> usize {
 // import_from:
 //     | 'from' ('.' | '...')* dotted_name 'import' import_from_targets
 //     | 'from' ('.' | '...')+ 'import' import_from_targets
-fn import_from(input: &[Token]) -> ParseResult<Import> {
+fn import_from(input: ParserInput) -> ParseResult<Import> {
     pair(
         right(token(TT::KEYWORD, "from"), pair(import_level, dotted_name)),
         right(token(TT::KEYWORD, "import"), import_from_targets),
@@ -435,7 +444,7 @@ fn import_from(input: &[Token]) -> ParseResult<Import> {
 //     | '(' import_from_as_names [','] ')'
 //     | import_from_as_names !','
 //     | '*'
-fn import_from_targets(input: &[Token]) -> ParseResult<Vec<ImportItem>> {
+fn import_from_targets(input: ParserInput) -> ParseResult<Vec<ImportItem>> {
     left(
         right(tok(TT::LPAR), import_from_as_names),
         pair(maybe(tok(TT::COMMA)), tok(TT::RPAR)),
@@ -452,13 +461,13 @@ fn import_from_targets(input: &[Token]) -> ParseResult<Vec<ImportItem>> {
 
 // import_from_as_names:
 //     | ','.import_from_as_name+
-fn import_from_as_names(input: &[Token]) -> ParseResult<Vec<ImportItem>> {
+fn import_from_as_names(input: ParserInput) -> ParseResult<Vec<ImportItem>> {
     sep_by(import_from_as_name, TT::COMMA).parse(input)
 }
 
 // import_from_as_name:
 //     | NAME ['as' NAME ]
-fn import_from_as_name(input: &[Token]) -> ParseResult<ImportItem> {
+fn import_from_as_name(input: ParserInput) -> ParseResult<ImportItem> {
     pair(name, maybe(right(token(TT::KEYWORD, "as"), name)))
         .map(|(n, alias)| ImportItem {
             name: vec![n],
@@ -469,13 +478,13 @@ fn import_from_as_name(input: &[Token]) -> ParseResult<ImportItem> {
 
 // dotted_as_names:
 //     | ','.dotted_as_name+
-fn dotted_as_names(input: &[Token]) -> ParseResult<Vec<Module>> {
+fn dotted_as_names(input: ParserInput) -> ParseResult<Vec<Module>> {
     sep_by(dotted_as_name, TT::COMMA).parse(input)
 }
 
 // dotted_as_name:
 //     | dotted_name ['as' NAME ]
-fn dotted_as_name(input: &[Token]) -> ParseResult<Module> {
+fn dotted_as_name(input: ParserInput) -> ParseResult<Module> {
     pair(dotted_name, maybe(right(token(TT::KEYWORD, "as"), name)))
         .map(|(path, alias)| Module {
             rel_level: 0,
@@ -488,7 +497,7 @@ fn dotted_as_name(input: &[Token]) -> ParseResult<Module> {
 // dotted_name:
 //     | dotted_name '.' NAME
 //     | NAME
-fn dotted_name(input: &[Token]) -> ParseResult<Vec<Name>> {
+fn dotted_name(input: ParserInput) -> ParseResult<Vec<Name>> {
     sep_by(name, TT::DOT).parse(input)
 }
 
@@ -501,7 +510,7 @@ fn dotted_name(input: &[Token]) -> ParseResult<Vec<Name>> {
 // block:
 //     | NEWLINE INDENT statements DEDENT
 //     | simple_stmts
-fn block(input: &[Token]) -> ParseResult<Vec<Statement>> {
+fn block(input: ParserInput) -> ParseResult<Vec<Statement>> {
     left(
         right(pair(tok(TT::NEWLINE), tok(TT::INDENT)), statements),
         tok(TT::DEDENT),
@@ -511,7 +520,7 @@ fn block(input: &[Token]) -> ParseResult<Vec<Statement>> {
 }
 
 // decorators: ('@' named_expression NEWLINE )*
-fn decorators(input: &[Token]) -> ParseResult<Vec<Decorator>> {
+fn decorators(input: ParserInput) -> ParseResult<Vec<Decorator>> {
     zero_or_more(right(tok(TT::AT), left(named_expression, tok(TT::NEWLINE))).map(Decorator))
         .parse(input)
 }
@@ -521,7 +530,7 @@ fn decorators(input: &[Token]) -> ParseResult<Vec<Decorator>> {
 
 // class_def:
 //     | decorators class_def_raw
-fn class_def(input: &[Token]) -> ParseResult<Statement> {
+fn class_def(input: ParserInput) -> ParseResult<Statement> {
     pair(decorators, class_def_raw)
         .map(|(d, mut c)| {
             c.decorators = d;
@@ -533,7 +542,7 @@ fn class_def(input: &[Token]) -> ParseResult<Statement> {
 
 // class_def_raw:
 //     | 'class' NAME [type_params] ['(' [arguments] ')' ] ':' block
-fn class_def_raw(input: &[Token]) -> ParseResult<ClassDefinition> {
+fn class_def_raw(input: ParserInput) -> ParseResult<ClassDefinition> {
     pair(
         right(token(TT::KEYWORD, "class"), pair(name, maybe(type_params))),
         pair(
@@ -556,7 +565,7 @@ fn class_def_raw(input: &[Token]) -> ParseResult<ClassDefinition> {
 
 // function_def:
 //     | decorators function_def_raw
-fn function_def(input: &[Token]) -> ParseResult<Statement> {
+fn function_def(input: ParserInput) -> ParseResult<Statement> {
     pair(decorators, function_def_raw)
         .map(|(dec, fun)| Statement::FunctionDeclaration(fun, dec))
         .parse(input)
@@ -565,7 +574,7 @@ fn function_def(input: &[Token]) -> ParseResult<Statement> {
 // function_def_raw:
 //     | 'def' NAME [type_params] '(' [params] ')' ['->' expression ] ':' [func_type_comment] block
 //     | ASYNC 'def' NAME [type_params] '(' [params] ')' ['->' expression ] ':' [func_type_comment] block
-fn function_def_raw(input: &[Token]) -> ParseResult<FunctionDeclaration> {
+fn function_def_raw(input: ParserInput) -> ParseResult<FunctionDeclaration> {
     pair(
         maybe(token(TT::KEYWORD, "async")),
         pair(
@@ -590,13 +599,13 @@ fn function_def_raw(input: &[Token]) -> ParseResult<FunctionDeclaration> {
 
 // # Function parameters
 // # -------------------
-fn name(input: &[Token]) -> ParseResult<Name> {
+fn name(input: ParserInput) -> ParseResult<Name> {
     tok(TT::NAME).parse(input).into()
 }
 
 // params:
 //     | parameters
-fn params(input: &[Token]) -> ParseResult<Vec<Parameter>> {
+fn params(input: ParserInput) -> ParseResult<Vec<Parameter>> {
     parameters.parse(input)
 }
 
@@ -606,7 +615,7 @@ fn params(input: &[Token]) -> ParseResult<Vec<Parameter>> {
 //     | param_no_default+ param_with_default* [star_etc]
 //     | param_with_default+ [star_etc]
 //     | star_etc
-fn parameters(input: &[Token]) -> ParseResult<Vec<Parameter>> {
+fn parameters(input: ParserInput) -> ParseResult<Vec<Parameter>> {
     pair(
         pair(slash_no_default, zero_or_more(param_no_default)),
         pair(zero_or_more(param_with_default), maybe(star_etc)),
@@ -654,7 +663,7 @@ fn parameters(input: &[Token]) -> ParseResult<Vec<Parameter>> {
 // slash_no_default:
 //     | param_no_default+ '/' ','
 //     | param_no_default+ '/' &')'
-fn slash_no_default(input: &[Token]) -> ParseResult<Vec<Parameter>> {
+fn slash_no_default(input: ParserInput) -> ParseResult<Vec<Parameter>> {
     left(
         one_or_more(param_no_default),
         pair(tok(TT::SLASH), tok(TT::COMMA)),
@@ -669,7 +678,7 @@ fn slash_no_default(input: &[Token]) -> ParseResult<Vec<Parameter>> {
 // slash_with_default:
 //     | param_no_default* param_with_default+ '/' ','
 //     | param_no_default* param_with_default+ '/' &')'
-fn slash_with_default(input: &[Token]) -> ParseResult<Vec<Parameter>> {
+fn slash_with_default(input: ParserInput) -> ParseResult<Vec<Parameter>> {
     pair(
         zero_or_more(param_no_default),
         left(
@@ -696,7 +705,7 @@ fn slash_with_default(input: &[Token]) -> ParseResult<Vec<Parameter>> {
 //     | '*' param_no_default_star_annotation param_maybe_default* [kwds]
 //     | '*' ',' param_maybe_default+ [kwds]
 //     | kwds
-fn star_etc(input: &[Token]) -> ParseResult<Vec<Parameter>> {
+fn star_etc(input: ParserInput) -> ParseResult<Vec<Parameter>> {
     pair(
         right(tok(TT::STAR), param_no_default),
         pair(zero_or_more(param_maybe_default), maybe(kwds)),
@@ -738,7 +747,7 @@ fn star_etc(input: &[Token]) -> ParseResult<Vec<Parameter>> {
 
 // kwds:
 //     | '**' param_no_default
-fn kwds(input: &[Token]) -> ParseResult<Parameter> {
+fn kwds(input: ParserInput) -> ParseResult<Parameter> {
     right(tok(TT::DOUBLESTAR), param_no_default)
         .map(|p| p.kwargs())
         .parse(input)
@@ -760,7 +769,7 @@ fn kwds(input: &[Token]) -> ParseResult<Parameter> {
 // param_no_default:
 //     | param ',' TYPE_COMMENT?
 //     | param TYPE_COMMENT? &')'
-fn param_no_default(input: &[Token]) -> ParseResult<Parameter> {
+fn param_no_default(input: ParserInput) -> ParseResult<Parameter> {
     left(param, tok(TT::COMMA))
         .or(left(param, lookahead(tok(TT::RPAR))))
         .parse(input)
@@ -769,7 +778,7 @@ fn param_no_default(input: &[Token]) -> ParseResult<Parameter> {
 // param_no_default_star_annotation:
 //     | param_star_annotation ',' TYPE_COMMENT?
 //     | param_star_annotation TYPE_COMMENT? &')'
-fn param_no_default_star_annotation(input: &[Token]) -> ParseResult<Parameter> {
+fn param_no_default_star_annotation(input: ParserInput) -> ParseResult<Parameter> {
     left(param_star_annotation, tok(TT::COMMA))
         .or(left(param_star_annotation, lookahead(tok(TT::RPAR))))
         .parse(input)
@@ -778,7 +787,7 @@ fn param_no_default_star_annotation(input: &[Token]) -> ParseResult<Parameter> {
 // param_with_default:
 //     | param default ',' TYPE_COMMENT?
 //     | param default TYPE_COMMENT? &')'
-fn param_with_default(input: &[Token]) -> ParseResult<Parameter> {
+fn param_with_default(input: ParserInput) -> ParseResult<Parameter> {
     pair(
         pair(param, default),
         right(tok(TT::COMMA), maybe(tok(TT::TYPE_COMMENT)))
@@ -795,7 +804,7 @@ fn param_with_default(input: &[Token]) -> ParseResult<Parameter> {
 // param_maybe_default:
 //     | param default? ',' TYPE_COMMENT?
 //     | param default? TYPE_COMMENT? &')'
-fn param_maybe_default(input: &[Token]) -> ParseResult<Parameter> {
+fn param_maybe_default(input: ParserInput) -> ParseResult<Parameter> {
     pair(
         pair(param, maybe(default)),
         right(tok(TT::COMMA), maybe(tok(TT::TYPE_COMMENT)))
@@ -810,31 +819,31 @@ fn param_maybe_default(input: &[Token]) -> ParseResult<Parameter> {
 }
 
 // param: NAME annotation?
-fn param(input: &[Token]) -> ParseResult<Parameter> {
+fn param(input: ParserInput) -> ParseResult<Parameter> {
     pair(name, maybe(annotation))
         .map(|(n, a)| Parameter::with_annotation(n, a))
         .parse(input)
 }
 
 // param_star_annotation: NAME star_annotation
-fn param_star_annotation(input: &[Token]) -> ParseResult<Parameter> {
+fn param_star_annotation(input: ParserInput) -> ParseResult<Parameter> {
     pair(name, star_annotation)
         .map(|(n, a)| Parameter::with_annotation(n, Some(a)))
         .parse(input)
 }
 
 // annotation: ':' expression
-fn annotation(input: &[Token]) -> ParseResult<Expression> {
+fn annotation(input: ParserInput) -> ParseResult<Expression> {
     right(tok(TT::COLON), expression).parse(input)
 }
 
 // star_annotation: ':' star_expression
-fn star_annotation(input: &[Token]) -> ParseResult<Expression> {
+fn star_annotation(input: ParserInput) -> ParseResult<Expression> {
     right(tok(TT::COLON), star_expression).parse(input)
 }
 
 // default: '=' expression  | invalid_default
-fn default(input: &[Token]) -> ParseResult<Expression> {
+fn default(input: ParserInput) -> ParseResult<Expression> {
     right(tok(TT::EQUAL), expression).parse(input)
 }
 
@@ -844,7 +853,7 @@ fn default(input: &[Token]) -> ParseResult<Expression> {
 // if_stmt:
 //     | 'if' named_expression ':' block elif_stmt
 //     | 'if' named_expression ':' block [else_block]
-fn if_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn if_stmt(input: ParserInput) -> ParseResult<Statement> {
     pair(
         pair(
             right(token(TT::KEYWORD, "if"), named_expression),
@@ -860,7 +869,7 @@ fn if_stmt(input: &[Token]) -> ParseResult<Statement> {
 //     | 'elif' named_expression ':' block elif_stmt
 //     | 'elif' named_expression ':' block [else_block]
 fn elif_stmt(
-    input: &[Token],
+    input: ParserInput,
 ) -> ParseResult<(Vec<(Expression, Vec<Statement>)>, Option<Vec<Statement>>)> {
     pair(
         one_or_more(pair(
@@ -874,7 +883,7 @@ fn elif_stmt(
 
 // else_block:
 //     | 'else' ':' block
-fn else_block(input: &[Token]) -> ParseResult<Vec<Statement>> {
+fn else_block(input: ParserInput) -> ParseResult<Vec<Statement>> {
     right(pair(token(TT::KEYWORD, "else"), tok(TT::COLON)), block).parse(input)
 }
 
@@ -883,7 +892,7 @@ fn else_block(input: &[Token]) -> ParseResult<Vec<Statement>> {
 
 // while_stmt:
 //     | 'while' named_expression ':' block [else_block]
-fn while_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn while_stmt(input: ParserInput) -> ParseResult<Statement> {
     pair(
         right(
             token(TT::KEYWORD, "while"),
@@ -901,7 +910,7 @@ fn while_stmt(input: &[Token]) -> ParseResult<Statement> {
 // for_stmt:
 //     | 'for' star_targets 'in' ~ star_expressions ':' [TYPE_COMMENT] block [else_block]
 //     | ASYNC 'for' star_targets 'in' ~ star_expressions ':' [TYPE_COMMENT] block [else_block]
-fn for_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn for_stmt(input: ParserInput) -> ParseResult<Statement> {
     pair(
         maybe(token(TT::KEYWORD, "async")),
         pair(
@@ -936,7 +945,7 @@ fn for_stmt(input: &[Token]) -> ParseResult<Statement> {
 //     | 'with' ','.with_item+ ':' [TYPE_COMMENT] block
 //     | ASYNC 'with' '(' ','.with_item+ ','? ')' ':' block
 //     | ASYNC 'with' ','.with_item+ ':' [TYPE_COMMENT] block
-fn with_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn with_stmt(input: ParserInput) -> ParseResult<Statement> {
     pair(
         maybe(token(TT::KEYWORD, "async")),
         pair(
@@ -971,7 +980,7 @@ fn with_stmt(input: &[Token]) -> ParseResult<Statement> {
 
 // with_item:
 //     | expression ['as' star_target &(',' | ')' | ':')]
-fn with_item(input: &[Token]) -> ParseResult<Expression> {
+fn with_item(input: ParserInput) -> ParseResult<Expression> {
     pair(
         expression,
         maybe(left(
@@ -990,7 +999,7 @@ fn with_item(input: &[Token]) -> ParseResult<Expression> {
 //     | 'try' ':' block finally_block
 //     | 'try' ':' block except_block+ [else_block] [finally_block]
 //     | 'try' ':' block except_star_block+ [else_block] [finally_block]
-fn try_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn try_stmt(input: ParserInput) -> ParseResult<Statement> {
     right(
         pair(token(TT::KEYWORD, "try"), tok(TT::COLON)),
         pair(block, finally_block),
@@ -1021,7 +1030,7 @@ fn try_stmt(input: &[Token]) -> ParseResult<Statement> {
 // except_block:
 //     | 'except' expression ['as' NAME ] ':' block
 //     | 'except' ':' block
-fn except_block(input: &[Token]) -> ParseResult<Expression> {
+fn except_block(input: ParserInput) -> ParseResult<Expression> {
     pair(
         right(
             token(TT::KEYWORD, "except"),
@@ -1039,7 +1048,7 @@ fn except_block(input: &[Token]) -> ParseResult<Expression> {
 
 // except_star_block:
 //     | 'except' '*' expression ['as' NAME ] ':' block
-fn except_star_block(input: &[Token]) -> ParseResult<Expression> {
+fn except_star_block(input: ParserInput) -> ParseResult<Expression> {
     pair(
         right(
             pair(token(TT::KEYWORD, "except"), tok(TT::STAR)),
@@ -1053,7 +1062,7 @@ fn except_star_block(input: &[Token]) -> ParseResult<Expression> {
 
 // finally_block:
 //     | 'finally' ':' block
-fn finally_block(input: &[Token]) -> ParseResult<Vec<Statement>> {
+fn finally_block(input: ParserInput) -> ParseResult<Vec<Statement>> {
     right(pair(token(TT::KEYWORD, "finally"), tok(TT::COLON)), block).parse(input)
 }
 
@@ -1062,7 +1071,7 @@ fn finally_block(input: &[Token]) -> ParseResult<Vec<Statement>> {
 
 // match_stmt:
 //     | "match" subject_expr ':' NEWLINE INDENT case_block+ DEDENT
-fn match_stmt(input: &[Token]) -> ParseResult<Statement> {
+fn match_stmt(input: ParserInput) -> ParseResult<Statement> {
     pair(
         right(token(TT::SOFT_KEYWORD, "match"), subject_expr),
         right(
@@ -1077,7 +1086,7 @@ fn match_stmt(input: &[Token]) -> ParseResult<Statement> {
 // subject_expr:
 //     | star_named_expression ',' star_named_expressions?
 //     | named_expression
-fn subject_expr(input: &[Token]) -> ParseResult<Vec<Expression>> {
+fn subject_expr(input: ParserInput) -> ParseResult<Vec<Expression>> {
     pair(
         left(star_named_expression, tok(TT::COMMA)),
         maybe(star_named_expressions),
@@ -1093,7 +1102,7 @@ fn subject_expr(input: &[Token]) -> ParseResult<Vec<Expression>> {
 
 // case_block:
 //     | "case" patterns guard? ':' block
-fn case_block(input: &[Token]) -> ParseResult<Expression> {
+fn case_block(input: ParserInput) -> ParseResult<Expression> {
     pair(
         right(token(TT::SOFT_KEYWORD, "case"), patterns),
         pair(left(maybe(guard), tok(TT::COLON)), block),
@@ -1103,14 +1112,14 @@ fn case_block(input: &[Token]) -> ParseResult<Expression> {
 }
 
 // guard: 'if' named_expression
-fn guard(input: &[Token]) -> ParseResult<Expression> {
+fn guard(input: ParserInput) -> ParseResult<Expression> {
     right(token(TT::KEYWORD, "if"), named_expression).parse(input)
 }
 
 // patterns:
 //     | open_sequence_pattern
 //     | pattern
-fn patterns(input: &[Token]) -> ParseResult<Vec<Pattern>> {
+fn patterns(input: ParserInput) -> ParseResult<Vec<Pattern>> {
     open_sequence_pattern
         .or(pattern.map(|p| vec![p]))
         .parse(input)
@@ -1119,13 +1128,13 @@ fn patterns(input: &[Token]) -> ParseResult<Vec<Pattern>> {
 // pattern:
 //     | as_pattern
 //     | or_pattern
-fn pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn pattern(input: ParserInput) -> ParseResult<Pattern> {
     as_pattern.or(or_pattern).parse(input)
 }
 
 // as_pattern:
 //     | or_pattern 'as' pattern_capture_target
-fn as_pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn as_pattern(input: ParserInput) -> ParseResult<Pattern> {
     pair(
         left(or_pattern, token(TT::KEYWORD, "as")),
         pattern_capture_target,
@@ -1136,7 +1145,7 @@ fn as_pattern(input: &[Token]) -> ParseResult<Pattern> {
 
 // or_pattern:
 //     | '|'.closed_pattern+
-fn or_pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn or_pattern(input: ParserInput) -> ParseResult<Pattern> {
     sep_by(closed_pattern, TT::VBAR)
         .map(Pattern::Disjunction)
         .parse(input)
@@ -1151,7 +1160,7 @@ fn or_pattern(input: &[Token]) -> ParseResult<Pattern> {
 //     | sequence_pattern
 //     | mapping_pattern
 //     | class_pattern
-fn closed_pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn closed_pattern(input: ParserInput) -> ParseResult<Pattern> {
     literal_pattern
         .or(capture_pattern)
         .or(wildcard_pattern)
@@ -1171,7 +1180,7 @@ fn closed_pattern(input: &[Token]) -> ParseResult<Pattern> {
 //     | 'None'
 //     | 'True'
 //     | 'False'
-fn literal_pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn literal_pattern(input: ParserInput) -> ParseResult<Pattern> {
     number
         .map(Expression::Number)
         .or(strings)
@@ -1190,7 +1199,7 @@ fn literal_pattern(input: &[Token]) -> ParseResult<Pattern> {
 //     | 'None'
 //     | 'True'
 //     | 'False'
-fn literal_expr(input: &[Token]) -> ParseResult<Expression> {
+fn literal_expr(input: ParserInput) -> ParseResult<Expression> {
     literal_pattern
         .map(|p| Expression::Pattern(Box::new(p)))
         .parse(input)
@@ -1198,7 +1207,7 @@ fn literal_expr(input: &[Token]) -> ParseResult<Expression> {
 
 // capture_pattern:
 //     | pattern_capture_target
-fn capture_pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn capture_pattern(input: ParserInput) -> ParseResult<Pattern> {
     pattern_capture_target
         .map(|n| Pattern::Capture(None, n))
         .parse(input)
@@ -1206,7 +1215,7 @@ fn capture_pattern(input: &[Token]) -> ParseResult<Pattern> {
 
 // pattern_capture_target:
 //     | !"_" NAME !('.' | '(' | '=')
-fn pattern_capture_target(input: &[Token]) -> ParseResult<Name> {
+fn pattern_capture_target(input: ParserInput) -> ParseResult<Name> {
     left(
         right(not(wildcard_pattern), name),
         not(tok(TT::DOT).or(tok(TT::LPAR)).or(tok(TT::EQUAL))),
@@ -1216,7 +1225,7 @@ fn pattern_capture_target(input: &[Token]) -> ParseResult<Name> {
 
 // wildcard_pattern:
 //     | "_"
-fn wildcard_pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn wildcard_pattern(input: ParserInput) -> ParseResult<Pattern> {
     tok(TT::NAME)
         .pred(|t| t.lexeme.as_str() == "_")
         .map(|_| Pattern::Wildcard)
@@ -1225,7 +1234,7 @@ fn wildcard_pattern(input: &[Token]) -> ParseResult<Pattern> {
 
 // value_pattern:
 //     | attr !('.' | '(' | '=')
-fn value_pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn value_pattern(input: ParserInput) -> ParseResult<Pattern> {
     left(attr, not(tok(TT::DOT).or(tok(TT::LPAR)).or(tok(TT::EQUAL))))
         .map(|a| match a {
             Expression::Attribute(ns) => Pattern::Value(ns),
@@ -1236,7 +1245,7 @@ fn value_pattern(input: &[Token]) -> ParseResult<Pattern> {
 
 // attr:
 //     | (attr | NAME) '.' NAME
-fn attr(input: &[Token]) -> ParseResult<Expression> {
+fn attr(input: ParserInput) -> ParseResult<Expression> {
     pair(left(name, tok(TT::DOT)), sep_by(name, TT::DOT))
         .map(|(n, mut ns)| {
             ns.insert(0, n);
@@ -1245,7 +1254,7 @@ fn attr(input: &[Token]) -> ParseResult<Expression> {
         .parse(input)
 }
 
-fn name_or_attr(input: &[Token]) -> ParseResult<Expression> {
+fn name_or_attr(input: ParserInput) -> ParseResult<Expression> {
     name.map(|n| Expression::Attribute(vec![n]))
         .or(attr)
         .parse(input)
@@ -1253,7 +1262,7 @@ fn name_or_attr(input: &[Token]) -> ParseResult<Expression> {
 
 // group_pattern:
 //     | '(' pattern ')'
-fn group_pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn group_pattern(input: ParserInput) -> ParseResult<Pattern> {
     right(tok(TT::LPAR), left(pattern, tok(TT::RPAR)))
         .map(|p| Pattern::Group(Box::new(p)))
         .parse(input)
@@ -1262,7 +1271,7 @@ fn group_pattern(input: &[Token]) -> ParseResult<Pattern> {
 // sequence_pattern:
 //     | '[' maybe_sequence_pattern? ']'
 //     | '(' open_sequence_pattern? ')'
-fn sequence_pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn sequence_pattern(input: ParserInput) -> ParseResult<Pattern> {
     right(
         tok(TT::LSQB),
         left(maybe(maybe_sequence_pattern), tok(TT::RSQB)),
@@ -1277,7 +1286,7 @@ fn sequence_pattern(input: &[Token]) -> ParseResult<Pattern> {
 
 // open_sequence_pattern:
 //     | maybe_star_pattern ',' maybe_sequence_pattern?
-fn open_sequence_pattern(input: &[Token]) -> ParseResult<Vec<Pattern>> {
+fn open_sequence_pattern(input: ParserInput) -> ParseResult<Vec<Pattern>> {
     pair(
         left(maybe_star_pattern, tok(TT::COMMA)),
         maybe(maybe_sequence_pattern),
@@ -1293,21 +1302,21 @@ fn open_sequence_pattern(input: &[Token]) -> ParseResult<Vec<Pattern>> {
 
 // maybe_sequence_pattern:
 //     | ','.maybe_star_pattern+ ','?
-fn maybe_sequence_pattern(input: &[Token]) -> ParseResult<Vec<Pattern>> {
+fn maybe_sequence_pattern(input: ParserInput) -> ParseResult<Vec<Pattern>> {
     left(sep_by(maybe_star_pattern, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
 // maybe_star_pattern:
 //     | star_pattern
 //     | pattern
-fn maybe_star_pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn maybe_star_pattern(input: ParserInput) -> ParseResult<Pattern> {
     star_pattern.or(pattern).parse(input)
 }
 
 // star_pattern:
 //     | '*' pattern_capture_target
 //     | '*' wildcard_pattern
-fn star_pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn star_pattern(input: ParserInput) -> ParseResult<Pattern> {
     right(
         tok(TT::STAR),
         pattern_capture_target
@@ -1323,7 +1332,7 @@ fn star_pattern(input: &[Token]) -> ParseResult<Pattern> {
 //     | '{' double_star_pattern ','? '}'
 //     | '{' items_pattern ',' double_star_pattern ','? '}'
 //     | '{' items_pattern ','? '}'
-fn mapping_pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn mapping_pattern(input: ParserInput) -> ParseResult<Pattern> {
     right(
         tok(TT::LBRACE),
         tok(TT::RBRACE)
@@ -1352,13 +1361,13 @@ fn mapping_pattern(input: &[Token]) -> ParseResult<Pattern> {
 
 // items_pattern:
 //     | ','.key_value_pattern+
-fn items_pattern(input: &[Token]) -> ParseResult<Vec<Pattern>> {
+fn items_pattern(input: ParserInput) -> ParseResult<Vec<Pattern>> {
     sep_by(key_value_pattern, TT::COMMA).parse(input)
 }
 
 // key_value_pattern:
 //     | (literal_expr | attr) ':' pattern
-fn key_value_pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn key_value_pattern(input: ParserInput) -> ParseResult<Pattern> {
     pair(left(literal_expr.or(attr), tok(TT::COLON)), pattern)
         .map(|(e, p)| Pattern::KeyValue(Box::new(e), Box::new(p)))
         .parse(input)
@@ -1366,7 +1375,7 @@ fn key_value_pattern(input: &[Token]) -> ParseResult<Pattern> {
 
 // double_star_pattern:
 //     | '**' pattern_capture_target
-fn double_star_pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn double_star_pattern(input: ParserInput) -> ParseResult<Pattern> {
     right(tok(TT::DOUBLESTAR), pattern_capture_target)
         .map(Pattern::DoubleStar)
         .parse(input)
@@ -1377,7 +1386,7 @@ fn double_star_pattern(input: &[Token]) -> ParseResult<Pattern> {
 //     | name_or_attr '(' positional_patterns ','? ')'
 //     | name_or_attr '(' keyword_patterns ','? ')'
 //     | name_or_attr '(' positional_patterns ',' keyword_patterns ','? ')'
-fn class_pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn class_pattern(input: ParserInput) -> ParseResult<Pattern> {
     pair(
         name_or_attr,
         pair(tok(TT::LPAR), tok(TT::RPAR))
@@ -1411,19 +1420,19 @@ fn class_pattern(input: &[Token]) -> ParseResult<Pattern> {
 
 // positional_patterns:
 //     | ','.pattern+
-fn positional_patterns(input: &[Token]) -> ParseResult<Vec<Pattern>> {
+fn positional_patterns(input: ParserInput) -> ParseResult<Vec<Pattern>> {
     sep_by(pattern, TT::COMMA).parse(input)
 }
 
 // keyword_patterns:
 //     | ','.keyword_pattern+
-fn keyword_patterns(input: &[Token]) -> ParseResult<Vec<Pattern>> {
+fn keyword_patterns(input: ParserInput) -> ParseResult<Vec<Pattern>> {
     sep_by(keyword_pattern, TT::COMMA).parse(input)
 }
 
 // keyword_pattern:
 //     | NAME '=' pattern
-fn keyword_pattern(input: &[Token]) -> ParseResult<Pattern> {
+fn keyword_pattern(input: ParserInput) -> ParseResult<Pattern> {
     pair(left(name, tok(TT::EQUAL)), pattern)
         .map(|(n, p)| Pattern::KeyValue(Box::new(Expression::Name(n)), Box::new(p)))
         .parse(input)
@@ -1435,7 +1444,7 @@ fn keyword_pattern(input: &[Token]) -> ParseResult<Pattern> {
 // type_alias:
 //     | "type" NAME [type_params] '=' expression
 
-fn type_alias(input: &[Token]) -> ParseResult<Statement> {
+fn type_alias(input: ParserInput) -> ParseResult<Statement> {
     pair(
         right(token(TT::SOFT_KEYWORD, "type"), name),
         pair(left(maybe(type_params), tok(TT::EQUAL)), expression),
@@ -1448,12 +1457,12 @@ fn type_alias(input: &[Token]) -> ParseResult<Statement> {
 // # --------------------------
 
 // type_params: '[' type_param_seq  ']'
-fn type_params(input: &[Token]) -> ParseResult<Vec<Expression>> {
+fn type_params(input: ParserInput) -> ParseResult<Vec<Expression>> {
     left(right(tok(TT::LSQB), type_param_seq), tok(TT::RSQB)).parse(input)
 }
 
 // type_param_seq: ','.type_param+ [',']
-fn type_param_seq(input: &[Token]) -> ParseResult<Vec<Expression>> {
+fn type_param_seq(input: ParserInput) -> ParseResult<Vec<Expression>> {
     left(sep_by(type_param, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
@@ -1463,7 +1472,7 @@ fn type_param_seq(input: &[Token]) -> ParseResult<Vec<Expression>> {
 //     | '*' NAME
 //     | '**' NAME ':' expression
 //     | '**' NAME
-fn type_param(input: &[Token]) -> ParseResult<Expression> {
+fn type_param(input: ParserInput) -> ParseResult<Expression> {
     pair(name, maybe(type_param_bound))
         .map(|(name, type_bound)| {
             Expression::TypeBound(TypeBound {
@@ -1517,7 +1526,7 @@ fn type_param(input: &[Token]) -> ParseResult<Expression> {
 }
 
 // type_param_bound: ':' expression
-fn type_param_bound(input: &[Token]) -> ParseResult<Box<Expression>> {
+fn type_param_bound(input: ParserInput) -> ParseResult<Box<Expression>> {
     right(tok(TT::COLON), expression).map(Box::new).parse(input)
 }
 
@@ -1528,7 +1537,7 @@ fn type_param_bound(input: &[Token]) -> ParseResult<Box<Expression>> {
 //     | expression (',' expression )+ [',']
 //     | expression ','
 //     | expression
-fn expressions(input: &[Token]) -> ParseResult<Vec<Expression>> {
+fn expressions(input: ParserInput) -> ParseResult<Vec<Expression>> {
     left(sep_by(expression, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
@@ -1536,7 +1545,7 @@ fn expressions(input: &[Token]) -> ParseResult<Vec<Expression>> {
 //     | disjunction 'if' disjunction 'else' expression
 //     | disjunction
 //     | lambdef
-fn expression(input: &[Token]) -> ParseResult<Expression> {
+fn expression(input: ParserInput) -> ParseResult<Expression> {
     pair(
         disjunction,
         maybe(pair(
@@ -1555,7 +1564,7 @@ fn expression(input: &[Token]) -> ParseResult<Expression> {
 // yield_expr:
 //     | 'yield' 'from' expression
 //     | 'yield' [star_expressions]
-fn yield_expr(input: &[Token]) -> ParseResult<Expression> {
+fn yield_expr(input: ParserInput) -> ParseResult<Expression> {
     right(
         pair(token(TT::KEYWORD, "yield"), token(TT::KEYWORD, "from")),
         expression,
@@ -1573,22 +1582,22 @@ fn yield_expr(input: &[Token]) -> ParseResult<Expression> {
 //     | star_expression (',' star_expression )+ [',']
 //     | star_expression ','
 //     | star_expression
-fn star_expressions(input: &[Token]) -> ParseResult<Vec<Expression>> {
+fn star_expressions(input: ParserInput) -> ParseResult<Vec<Expression>> {
     left(sep_by(star_expression, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
 // star_expression:
 //     | '*' bitwise_or
 //     | expression
-fn star_expression(input: &[Token]) -> ParseResult<Expression> {
+fn star_expression(input: ParserInput) -> ParseResult<Expression> {
     pair(tok(TT::STAR), bitwise_or)
-        .map(|(_, e)| Expression::Starred(Box::new(e)))
+        .map(|(_, e)| Expression::ListUnwrap(Box::new(e)))
         .or(expression)
         .parse(input)
 }
 
 // star_named_expressions: ','.star_named_expression+ [',']
-fn star_named_expressions(input: &[Token]) -> ParseResult<Vec<Expression>> {
+fn star_named_expressions(input: ParserInput) -> ParseResult<Vec<Expression>> {
     left(
         sep_by(star_named_expression, TT::COMMA),
         maybe(tok(TT::COMMA)),
@@ -1599,7 +1608,7 @@ fn star_named_expressions(input: &[Token]) -> ParseResult<Vec<Expression>> {
 // star_named_expression:
 //     | '*' bitwise_or
 //     | named_expression
-fn star_named_expression(input: &[Token]) -> ParseResult<Expression> {
+fn star_named_expression(input: ParserInput) -> ParseResult<Expression> {
     right(tok(TT::STAR), bitwise_or)
         .or(named_expression)
         .parse(input)
@@ -1607,7 +1616,7 @@ fn star_named_expression(input: &[Token]) -> ParseResult<Expression> {
 
 // assignment_expression:
 //     | NAME ':=' ~ expression
-fn assignment_expression(input: &[Token]) -> ParseResult<Expression> {
+fn assignment_expression(input: ParserInput) -> ParseResult<Expression> {
     pair(
         left(name.map(Expression::Name), tok(TT::COLONEQUAL)),
         expression,
@@ -1619,7 +1628,7 @@ fn assignment_expression(input: &[Token]) -> ParseResult<Expression> {
 // named_expression:
 //     | assignment_expression
 //     | expression !':='
-fn named_expression(input: &[Token]) -> ParseResult<Expression> {
+fn named_expression(input: ParserInput) -> ParseResult<Expression> {
     assignment_expression
         .or(left(expression, not(tok(TT::COLONEQUAL))))
         .parse(input)
@@ -1628,7 +1637,7 @@ fn named_expression(input: &[Token]) -> ParseResult<Expression> {
 // disjunction:
 //     | conjunction ('or' conjunction )+
 //     | conjunction
-fn disjunction(input: &[Token]) -> ParseResult<Expression> {
+fn disjunction(input: ParserInput) -> ParseResult<Expression> {
     pair(conjunction, right(token(TT::KEYWORD, "or"), conjunction))
         .map(|(l, r)| Expression::BinaryOperation(Operator::Or, Box::new((l, r))))
         .or(conjunction)
@@ -1638,7 +1647,7 @@ fn disjunction(input: &[Token]) -> ParseResult<Expression> {
 // conjunction:
 //     | inversion ('and' inversion )+
 //     | inversion
-fn conjunction(input: &[Token]) -> ParseResult<Expression> {
+fn conjunction(input: ParserInput) -> ParseResult<Expression> {
     pair(inversion, right(token(TT::KEYWORD, "and"), inversion))
         .map(|(l, r)| Expression::BinaryOperation(Operator::And, Box::new((l, r))))
         .or(inversion)
@@ -1648,7 +1657,7 @@ fn conjunction(input: &[Token]) -> ParseResult<Expression> {
 // inversion:
 //     | 'not' inversion
 //     | comparison
-fn inversion(input: &[Token]) -> ParseResult<Expression> {
+fn inversion(input: ParserInput) -> ParseResult<Expression> {
     right(token(TT::KEYWORD, "not"), inversion)
         .map(|i| Expression::UnaryOperation(Operator::Not, Box::new(i)))
         .or(comparison)
@@ -1661,7 +1670,7 @@ fn inversion(input: &[Token]) -> ParseResult<Expression> {
 // comparison:
 //     | bitwise_or compare_op_bitwise_or_pair+
 //     | bitwise_or
-fn comparison(input: &[Token]) -> ParseResult<Expression> {
+fn comparison(input: ParserInput) -> ParseResult<Expression> {
     pair(bitwise_or, zero_or_more(compare_op_bitwise_or_pair))
         .map(|(l, r)| {
             if r.is_empty() {
@@ -1684,7 +1693,7 @@ fn comparison(input: &[Token]) -> ParseResult<Expression> {
 //     | in_bitwise_or
 //     | isnot_bitwise_or
 //     | is_bitwise_or
-fn compare_op_bitwise_or_pair(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+fn compare_op_bitwise_or_pair(input: ParserInput) -> ParseResult<(Operator, Expression)> {
     eq_bitwise_or
         .or(noteq_bitwise_or)
         .or(lte_bitwise_or)
@@ -1699,38 +1708,38 @@ fn compare_op_bitwise_or_pair(input: &[Token]) -> ParseResult<(Operator, Express
 }
 
 // eq_bitwise_or: '==' bitwise_or
-fn eq_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+fn eq_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
     pair(tok(TT::EQEQUAL).map(Operator::from), bitwise_or).parse(input)
 }
 
 // noteq_bitwise_or:
 //     | ('!=' ) bitwise_or
-fn noteq_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+fn noteq_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
     pair(tok(TT::NOTEQUAL).map(Operator::from), bitwise_or).parse(input)
 }
 
 // lte_bitwise_or: '<=' bitwise_or
-fn lte_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+fn lte_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
     pair(tok(TT::LESSEQUAL).map(Operator::from), bitwise_or).parse(input)
 }
 
 // lt_bitwise_or: '<' bitwise_or
-fn lt_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+fn lt_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
     pair(tok(TT::LESS).map(Operator::from), bitwise_or).parse(input)
 }
 
 // gte_bitwise_or: '>=' bitwise_or
-fn gte_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+fn gte_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
     pair(tok(TT::GREATEREQUAL).map(Operator::from), bitwise_or).parse(input)
 }
 
 // gt_bitwise_or: '>' bitwise_or
-fn gt_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+fn gt_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
     pair(tok(TT::GREATER).map(Operator::from), bitwise_or).parse(input)
 }
 
 // notin_bitwise_or: 'not' 'in' bitwise_or
-fn notin_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+fn notin_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
     right(
         pair(token(TT::KEYWORD, "not"), token(TT::KEYWORD, "in")),
         bitwise_or,
@@ -1740,14 +1749,14 @@ fn notin_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
 }
 
 // in_bitwise_or: 'in' bitwise_or
-fn in_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+fn in_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
     right(token(TT::KEYWORD, "in"), bitwise_or)
         .map(|e| (Operator::In, e))
         .parse(input)
 }
 
 // isnot_bitwise_or: 'is' 'not' bitwise_or
-fn isnot_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+fn isnot_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
     right(
         pair(token(TT::KEYWORD, "is"), token(TT::KEYWORD, "not")),
         bitwise_or,
@@ -1757,7 +1766,7 @@ fn isnot_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
 }
 
 // is_bitwise_or: 'is' bitwise_or
-fn is_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
+fn is_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
     right(token(TT::KEYWORD, "is"), bitwise_or)
         .map(|e| (Operator::Is, e))
         .parse(input)
@@ -1769,7 +1778,7 @@ fn is_bitwise_or(input: &[Token]) -> ParseResult<(Operator, Expression)> {
 // bitwise_or_tail:
 //     | '|' bitwise_xor bitwise_or_tail
 //     | epsilon
-fn bitwise_or_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
+fn bitwise_or_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
     right(tok(TT::VBAR), pair(bitwise_xor, bitwise_or_tail))
         .map(|(e, t)| {
             IncompleteExpression::BinaryOperation(Operator::BitwiseOr, Box::new(e), Box::new(t))
@@ -1780,7 +1789,7 @@ fn bitwise_or_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
 
 // bitwise_or:
 //     | bitwise_xor bitwise_or_tail
-fn bitwise_or(input: &[Token]) -> ParseResult<Expression> {
+fn bitwise_or(input: ParserInput) -> ParseResult<Expression> {
     pair(bitwise_xor, bitwise_or_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
@@ -1808,7 +1817,7 @@ fn bitwise_or(input: &[Token]) -> ParseResult<Expression> {
 // bitwise_xor_tail:
 //     | '^' bitwise_and bitwise_xor_tail
 //     | epsilon
-fn bitwise_xor_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
+fn bitwise_xor_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
     right(tok(TT::CIRCUMFLEX), pair(bitwise_and, bitwise_xor_tail))
         .map(|(e, t)| {
             IncompleteExpression::BinaryOperation(Operator::BitwiseXor, Box::new(e), Box::new(t))
@@ -1819,7 +1828,7 @@ fn bitwise_xor_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
 
 // bitwise_xor:
 //     | bitwise_and bitwise_xor_tail
-fn bitwise_xor(input: &[Token]) -> ParseResult<Expression> {
+fn bitwise_xor(input: ParserInput) -> ParseResult<Expression> {
     pair(bitwise_and, bitwise_xor_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
@@ -1847,7 +1856,7 @@ fn bitwise_xor(input: &[Token]) -> ParseResult<Expression> {
 // bitwise_and_tail:
 //     | '&' shift_expr bitwise_and_tail
 //     | epsilon
-fn bitwise_and_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
+fn bitwise_and_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
     right(tok(TT::VBAR), pair(shift_expr, bitwise_and_tail))
         .map(|(e, t)| {
             IncompleteExpression::BinaryOperation(Operator::BitwiseAnd, Box::new(e), Box::new(t))
@@ -1858,7 +1867,7 @@ fn bitwise_and_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
 
 // bitwise_and:
 //     | shift_expr bitwise_and_tail
-fn bitwise_and(input: &[Token]) -> ParseResult<Expression> {
+fn bitwise_and(input: ParserInput) -> ParseResult<Expression> {
     pair(shift_expr, bitwise_and_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
@@ -1887,7 +1896,7 @@ fn bitwise_and(input: &[Token]) -> ParseResult<Expression> {
 //     | '<<' sum shiftexpr_tail
 //     | '>>' sum shiftexpr_tail
 //     | epsilon
-fn shift_expr_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
+fn shift_expr_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
     pair(
         tok(TT::LEFTSHIFT).or(tok(TT::RIGHTSHIFT)),
         pair(sum, shift_expr_tail),
@@ -1899,7 +1908,7 @@ fn shift_expr_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
 
 // shift_expr:
 //     | sum shift_expr_tail
-fn shift_expr(input: &[Token]) -> ParseResult<Expression> {
+fn shift_expr(input: ParserInput) -> ParseResult<Expression> {
     pair(sum, shift_expr_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
@@ -1928,7 +1937,7 @@ fn shift_expr(input: &[Token]) -> ParseResult<Expression> {
 //     | '+' term sum_tail
 //     | '-' term sum_tail
 //     | epsilon
-fn sum_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
+fn sum_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
     pair(tok(TT::PLUS).or(tok(TT::MINUS)), pair(term, sum_tail))
         .map(|(o, (e, t))| {
             IncompleteExpression::BinaryOperation(o.into(), Box::new(e), Box::new(t))
@@ -1939,7 +1948,7 @@ fn sum_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
 
 // sum:
 //     | term sum_tail
-fn sum(input: &[Token]) -> ParseResult<Expression> {
+fn sum(input: ParserInput) -> ParseResult<Expression> {
     pair(term, sum_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
@@ -1968,7 +1977,7 @@ fn sum(input: &[Token]) -> ParseResult<Expression> {
 //     | '%' factor term_tail
 //     | '@' factor term_tail
 //     | epsilon
-fn term_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
+fn term_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
     pair(
         tok(TT::STAR)
             .or(tok(TT::SLASH))
@@ -1984,7 +1993,7 @@ fn term_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
 
 // term:
 //     | factor term_tail
-fn term(input: &[Token]) -> ParseResult<Expression> {
+fn term(input: ParserInput) -> ParseResult<Expression> {
     pair(factor, term_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
@@ -2011,7 +2020,7 @@ fn term(input: &[Token]) -> ParseResult<Expression> {
 //     | '-' factor
 //     | '~' factor
 //     | power
-fn factor(input: &[Token]) -> ParseResult<Expression> {
+fn factor(input: ParserInput) -> ParseResult<Expression> {
     power
         .or(
             pair(tok(TT::PLUS).or(tok(TT::MINUS)).or(tok(TT::TILDE)), factor).map(|(o, e)| {
@@ -2029,7 +2038,7 @@ fn factor(input: &[Token]) -> ParseResult<Expression> {
 
 // power:
 //     | await_primary ['**' factor]
-fn power(input: &[Token]) -> ParseResult<Expression> {
+fn power(input: ParserInput) -> ParseResult<Expression> {
     pair(await_primary, maybe(pair(tok(TT::DOUBLESTAR), factor)))
         .map(|(l, exp)| match exp {
             Some((o, r)) => Expression::BinaryOperation(o.into(), Box::new((l, r))),
@@ -2046,7 +2055,7 @@ fn power(input: &[Token]) -> ParseResult<Expression> {
 // await_primary:
 //     | AWAIT primary
 //     | primary
-fn await_primary(input: &[Token]) -> ParseResult<Expression> {
+fn await_primary(input: ParserInput) -> ParseResult<Expression> {
     right(token(TT::KEYWORD, "await"), primary)
         .or(primary)
         .parse(input)
@@ -2054,7 +2063,7 @@ fn await_primary(input: &[Token]) -> ParseResult<Expression> {
 
 // primary:
 //   | atom primary_tail
-fn primary(input: &[Token]) -> ParseResult<Expression> {
+fn primary(input: ParserInput) -> ParseResult<Expression> {
     pair(atom, primary_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
@@ -2091,7 +2100,7 @@ fn primary(input: &[Token]) -> ParseResult<Expression> {
 //     | '[' slices ']' primary_tail
 //     | genexp primary_tail
 //     | epsilon
-fn primary_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
+fn primary_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
     pair(right(tok(TT::DOT), name), primary_tail)
         .map(|(n, tail)| IncompleteExpression::Subscript(n, Box::new(tail)))
         .or(pair(
@@ -2115,7 +2124,7 @@ fn primary_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
 // slices:
 //     | slice !','
 //     | ','.(slice | starred_expression)+ [',']
-fn slices(input: &[Token]) -> ParseResult<Vec<Slice>> {
+fn slices(input: ParserInput) -> ParseResult<Vec<Slice>> {
     left(slice, not(tok(TT::COMMA)))
         .map(|s| vec![s])
         .or(left(
@@ -2128,7 +2137,7 @@ fn slices(input: &[Token]) -> ParseResult<Vec<Slice>> {
 // slice:
 //     | [expression] ':' [expression] [':' [expression] ]
 //     | named_expression
-fn slice(input: &[Token]) -> ParseResult<Slice> {
+fn slice(input: ParserInput) -> ParseResult<Slice> {
     pair(
         pair(left(maybe(expression), tok(TT::COLON)), maybe(expression)),
         maybe(right(tok(TT::COLON), maybe(expression))),
@@ -2149,7 +2158,7 @@ fn slice(input: &[Token]) -> ParseResult<Slice> {
 //     | (list | listcomp)
 //     | (dict | set | dictcomp | setcomp)
 //     | '...'
-fn atom(input: &[Token]) -> ParseResult<Expression> {
+fn atom(input: ParserInput) -> ParseResult<Expression> {
     name.map(Expression::Name)
         .or(token(TT::KEYWORD, "True").map(|_| Expression::True))
         .or(token(TT::KEYWORD, "False").map(|_| Expression::False))
@@ -2163,13 +2172,13 @@ fn atom(input: &[Token]) -> ParseResult<Expression> {
         .parse(input)
 }
 
-fn number(input: &[Token]) -> ParseResult<Number> {
+fn number(input: ParserInput) -> ParseResult<Number> {
     tok(TT::NUMBER).parse(input).into()
 }
 
 // group:
 //     | '(' (yield_expr | named_expression) ')'
-fn group(input: &[Token]) -> ParseResult<Expression> {
+fn group(input: ParserInput) -> ParseResult<Expression> {
     right(
         tok(TT::LPAR),
         left(yield_expr.or(named_expression), tok(TT::RPAR)),
@@ -2182,7 +2191,7 @@ fn group(input: &[Token]) -> ParseResult<Expression> {
 
 // lambdef:
 //     | 'lambda' [lambda_params] ':' expression
-fn lambdef(input: &[Token]) -> ParseResult<Expression> {
+fn lambdef(input: ParserInput) -> ParseResult<Expression> {
     pair(
         right(token(TT::KEYWORD, "lambda"), maybe(lambda_parameters)),
         expression,
@@ -2204,7 +2213,7 @@ fn lambdef(input: &[Token]) -> ParseResult<Expression> {
 //     | lambda_param_no_default+ lambda_param_with_default* [lambda_star_etc]
 //     | lambda_param_with_default+ [lambda_star_etc]
 //     | lambda_star_etc
-fn lambda_parameters(input: &[Token]) -> ParseResult<Vec<Parameter>> {
+fn lambda_parameters(input: ParserInput) -> ParseResult<Vec<Parameter>> {
     pair(
         pair(
             lambda_slash_no_default,
@@ -2260,7 +2269,7 @@ fn lambda_parameters(input: &[Token]) -> ParseResult<Vec<Parameter>> {
 // lambda_slash_no_default:
 //     | lambda_param_no_default+ '/' ','
 //     | lambda_param_no_default+ '/' &':'
-fn lambda_slash_no_default(input: &[Token]) -> ParseResult<Vec<Parameter>> {
+fn lambda_slash_no_default(input: ParserInput) -> ParseResult<Vec<Parameter>> {
     left(
         left(one_or_more(lambda_param_no_default), tok(TT::SLASH)),
         tok(TT::COMMA).discard().or(lookahead(tok(TT::COLON))),
@@ -2271,7 +2280,7 @@ fn lambda_slash_no_default(input: &[Token]) -> ParseResult<Vec<Parameter>> {
 // lambda_slash_with_default:
 //     | lambda_param_no_default* lambda_param_with_default+ '/' ','
 //     | lambda_param_no_default* lambda_param_with_default+ '/' &':'
-fn lambda_slash_with_default(input: &[Token]) -> ParseResult<Vec<Parameter>> {
+fn lambda_slash_with_default(input: ParserInput) -> ParseResult<Vec<Parameter>> {
     left(
         left(
             pair(
@@ -2293,7 +2302,7 @@ fn lambda_slash_with_default(input: &[Token]) -> ParseResult<Vec<Parameter>> {
 //     | '*' lambda_param_no_default lambda_param_maybe_default* [lambda_kwds]
 //     | '*' ',' lambda_param_maybe_default+ [lambda_kwds]
 //     | lambda_kwds
-fn lambda_star_etc(input: &[Token]) -> ParseResult<Vec<Parameter>> {
+fn lambda_star_etc(input: ParserInput) -> ParseResult<Vec<Parameter>> {
     pair(
         right(tok(TT::STAR), lambda_param_no_default),
         pair(zero_or_more(lambda_param_maybe_default), maybe(lambda_kwds)),
@@ -2325,7 +2334,7 @@ fn lambda_star_etc(input: &[Token]) -> ParseResult<Vec<Parameter>> {
 
 // lambda_kwds:
 //     | '**' lambda_param_no_default
-fn lambda_kwds(input: &[Token]) -> ParseResult<Parameter> {
+fn lambda_kwds(input: ParserInput) -> ParseResult<Parameter> {
     right(tok(TT::DOUBLESTAR), lambda_param_no_default)
         .map(|mut p| {
             p.double_starred = true;
@@ -2337,7 +2346,7 @@ fn lambda_kwds(input: &[Token]) -> ParseResult<Parameter> {
 // lambda_param_no_default:
 //     | lambda_param ','
 //     | lambda_param &':'
-fn lambda_param_no_default(input: &[Token]) -> ParseResult<Parameter> {
+fn lambda_param_no_default(input: ParserInput) -> ParseResult<Parameter> {
     left(
         lambda_param,
         tok(TT::COMMA).discard().or(lookahead(tok(TT::COLON))),
@@ -2348,7 +2357,7 @@ fn lambda_param_no_default(input: &[Token]) -> ParseResult<Parameter> {
 // lambda_param_with_default:
 //     | lambda_param default ','
 //     | lambda_param default &':'
-fn lambda_param_with_default(input: &[Token]) -> ParseResult<Parameter> {
+fn lambda_param_with_default(input: ParserInput) -> ParseResult<Parameter> {
     left(
         pair(lambda_param, default),
         tok(TT::COMMA).discard().or(lookahead(tok(TT::COLON))),
@@ -2363,7 +2372,7 @@ fn lambda_param_with_default(input: &[Token]) -> ParseResult<Parameter> {
 // lambda_param_maybe_default:
 //     | lambda_param default? ','
 //     | lambda_param default? &':'
-fn lambda_param_maybe_default(input: &[Token]) -> ParseResult<Parameter> {
+fn lambda_param_maybe_default(input: ParserInput) -> ParseResult<Parameter> {
     left(
         pair(lambda_param, maybe(default)),
         tok(TT::COMMA).discard().or(lookahead(tok(TT::COLON))),
@@ -2376,7 +2385,7 @@ fn lambda_param_maybe_default(input: &[Token]) -> ParseResult<Parameter> {
 }
 
 // lambda_param: NAME
-fn lambda_param(input: &[Token]) -> ParseResult<Parameter> {
+fn lambda_param(input: ParserInput) -> ParseResult<Parameter> {
     name.map(|n| n.into()).parse(input)
 }
 
@@ -2386,7 +2395,7 @@ fn lambda_param(input: &[Token]) -> ParseResult<Parameter> {
 // fstring_middle:
 //     | fstring_replacement_field
 //     | FSTRING_MIDDLE
-fn fstring_middle(input: &[Token]) -> ParseResult<FString> {
+fn fstring_middle(input: ParserInput) -> ParseResult<FString> {
     fstring_replacement_field
         .map(FString::Interpolated)
         .or(tok(TT::FSTRING_MIDDLE).map(|f| FString::Literal(f.lexeme)))
@@ -2395,7 +2404,7 @@ fn fstring_middle(input: &[Token]) -> ParseResult<FString> {
 
 // fstring_replacement_field:
 //     | '{' (yield_expr | star_expressions) '='? [fstring_conversion] [fstring_full_format_spec] '}'
-fn fstring_replacement_field(input: &[Token]) -> ParseResult<FStringReplacement> {
+fn fstring_replacement_field(input: ParserInput) -> ParseResult<FStringReplacement> {
     pair(
         pair(
             right(
@@ -2417,20 +2426,20 @@ fn fstring_replacement_field(input: &[Token]) -> ParseResult<FStringReplacement>
 
 // fstring_conversion:
 //     | "!" NAME
-fn fstring_conversion(input: &[Token]) -> ParseResult<Name> {
+fn fstring_conversion(input: ParserInput) -> ParseResult<Name> {
     right(tok(TT::EXCLAMATION), name).parse(input)
 }
 
 // fstring_full_format_spec:
 //     | ':' fstring_format_spec*
-fn fstring_full_format_spec(input: &[Token]) -> ParseResult<Vec<Expression>> {
+fn fstring_full_format_spec(input: ParserInput) -> ParseResult<Vec<Expression>> {
     right(tok(TT::COLON), zero_or_more(fstring_format_spec)).parse(input)
 }
 
 // fstring_format_spec:
 //     | FSTRING_MIDDLE
 //     | fstring_replacement_field
-fn fstring_format_spec(input: &[Token]) -> ParseResult<Expression> {
+fn fstring_format_spec(input: ParserInput) -> ParseResult<Expression> {
     tok(TT::FSTRING_MIDDLE)
         .map(|t| Expression::Strings(vec![PyString::Literal(t.lexeme)]))
         .or(fstring_replacement_field.map(Expression::FStringReplacement))
@@ -2439,7 +2448,7 @@ fn fstring_format_spec(input: &[Token]) -> ParseResult<Expression> {
 
 // fstring:
 //     | FSTRING_START fstring_middle* FSTRING_END
-fn fstring(input: &[Token]) -> ParseResult<PyString> {
+fn fstring(input: ParserInput) -> ParseResult<PyString> {
     left(
         right(tok(TT::FSTRING_START), zero_or_more(fstring_middle)),
         tok(TT::FSTRING_END),
@@ -2449,12 +2458,12 @@ fn fstring(input: &[Token]) -> ParseResult<PyString> {
 }
 
 // string: STRING
-fn string(input: &[Token]) -> ParseResult<Token> {
+fn string(input: ParserInput) -> ParseResult<Token> {
     tok(TT::STRING).parse(input)
 }
 
 // strings: (fstring|string)+
-fn strings(input: &[Token]) -> ParseResult<Expression> {
+fn strings(input: ParserInput) -> ParseResult<Expression> {
     one_or_more(string.map(|t| PyString::Literal(t.lexeme)).or(fstring))
         .map(Expression::Strings)
         .parse(input)
@@ -2462,7 +2471,7 @@ fn strings(input: &[Token]) -> ParseResult<Expression> {
 
 // list:
 //     | '[' [star_named_expressions] ']'
-fn list(input: &[Token]) -> ParseResult<Expression> {
+fn list(input: ParserInput) -> ParseResult<Expression> {
     left(
         right(tok(TT::LSQB), maybe(star_named_expressions)),
         tok(TT::RSQB),
@@ -2473,7 +2482,7 @@ fn list(input: &[Token]) -> ParseResult<Expression> {
 
 // tuple:
 //     | '(' [star_named_expression ',' [star_named_expressions]  ] ')'
-fn tuple(input: &[Token]) -> ParseResult<Expression> {
+fn tuple(input: ParserInput) -> ParseResult<Expression> {
     left(
         right(
             tok(TT::LPAR),
@@ -2496,7 +2505,7 @@ fn tuple(input: &[Token]) -> ParseResult<Expression> {
 }
 
 // set: '{' star_named_expressions '}'
-fn set(input: &[Token]) -> ParseResult<Expression> {
+fn set(input: ParserInput) -> ParseResult<Expression> {
     left(
         right(tok(TT::LBRACE), star_named_expressions),
         tok(TT::RBRACE),
@@ -2510,7 +2519,7 @@ fn set(input: &[Token]) -> ParseResult<Expression> {
 
 // dict:
 //     | '{' [double_starred_kvpairs] '}'
-fn dict(input: &[Token]) -> ParseResult<Expression> {
+fn dict(input: ParserInput) -> ParseResult<Expression> {
     left(
         right(tok(TT::LBRACE), maybe(double_starred_kvpairs)),
         tok(TT::RBRACE),
@@ -2520,7 +2529,7 @@ fn dict(input: &[Token]) -> ParseResult<Expression> {
 }
 
 // double_starred_kvpairs: ','.double_starred_kvpair+ [',']
-fn double_starred_kvpairs(input: &[Token]) -> ParseResult<Vec<Expression>> {
+fn double_starred_kvpairs(input: ParserInput) -> ParseResult<Vec<Expression>> {
     left(
         sep_by(double_starred_kvpair, TT::COMMA),
         maybe(tok(TT::COMMA)),
@@ -2531,7 +2540,7 @@ fn double_starred_kvpairs(input: &[Token]) -> ParseResult<Vec<Expression>> {
 // double_starred_kvpair:
 //     | '**' bitwise_or
 //     | kvpair
-fn double_starred_kvpair(input: &[Token]) -> ParseResult<Expression> {
+fn double_starred_kvpair(input: ParserInput) -> ParseResult<Expression> {
     right(tok(TT::DOUBLESTAR), bitwise_or)
         .map(|e| Expression::DictUnwrap(Box::new(e)))
         .or(kvpair)
@@ -2539,7 +2548,7 @@ fn double_starred_kvpair(input: &[Token]) -> ParseResult<Expression> {
 }
 
 // kvpair: expression ':' expression
-fn kvpair(input: &[Token]) -> ParseResult<Expression> {
+fn kvpair(input: ParserInput) -> ParseResult<Expression> {
     pair(expression, right(tok(TT::COLON), expression))
         .map(|(e, f)| Expression::Tuple(vec![e, f]))
         .parse(input)
@@ -2550,14 +2559,14 @@ fn kvpair(input: &[Token]) -> ParseResult<Expression> {
 
 // for_if_clauses:
 //     | for_if_clause+
-fn for_if_clauses(input: &[Token]) -> ParseResult<Vec<Expression>> {
+fn for_if_clauses(input: ParserInput) -> ParseResult<Vec<Expression>> {
     one_or_more(for_if_clause).parse(input)
 }
 
 // for_if_clause:
 //     | ASYNC 'for' star_targets 'in' ~ disjunction ('if' disjunction )*
 //     | 'for' star_targets 'in' ~ disjunction ('if' disjunction )*
-fn for_if_clause(input: &[Token]) -> ParseResult<Expression> {
+fn for_if_clause(input: ParserInput) -> ParseResult<Expression> {
     pair(
         maybe(token(TT::KEYWORD, "async")),
         pair(
@@ -2574,7 +2583,7 @@ fn for_if_clause(input: &[Token]) -> ParseResult<Expression> {
 
 // listcomp:
 //     | '[' named_expression for_if_clauses ']'
-fn listcomp(input: &[Token]) -> ParseResult<Expression> {
+fn listcomp(input: ParserInput) -> ParseResult<Expression> {
     pair(
         right(tok(TT::LSQB), star_named_expression),
         left(for_if_clauses, tok(TT::RSQB)),
@@ -2585,7 +2594,7 @@ fn listcomp(input: &[Token]) -> ParseResult<Expression> {
 
 // setcomp:
 //     | '{' named_expression for_if_clauses '}'
-fn setcomp(input: &[Token]) -> ParseResult<Expression> {
+fn setcomp(input: ParserInput) -> ParseResult<Expression> {
     pair(
         right(tok(TT::LBRACE), named_expression),
         left(for_if_clauses, tok(TT::RBRACE)),
@@ -2596,7 +2605,7 @@ fn setcomp(input: &[Token]) -> ParseResult<Expression> {
 
 // genexp:
 //     | '(' ( assignment_expression | expression !':=') for_if_clauses ')'
-fn genexp(input: &[Token]) -> ParseResult<Expression> {
+fn genexp(input: ParserInput) -> ParseResult<Expression> {
     pair(
         right(
             tok(TT::LPAR),
@@ -2610,7 +2619,7 @@ fn genexp(input: &[Token]) -> ParseResult<Expression> {
 
 // dictcomp:
 //     | '{' kvpair for_if_clauses '}'
-fn dictcomp(input: &[Token]) -> ParseResult<Expression> {
+fn dictcomp(input: ParserInput) -> ParseResult<Expression> {
     pair(
         right(tok(TT::LBRACE), kvpair),
         left(for_if_clauses, tok(TT::RSQB)),
@@ -2624,14 +2633,14 @@ fn dictcomp(input: &[Token]) -> ParseResult<Expression> {
 
 // arguments:
 //     | args [','] &')'
-fn arguments(input: &[Token]) -> ParseResult<Arguments> {
+fn arguments(input: ParserInput) -> ParseResult<Arguments> {
     left(args, pair(maybe(tok(TT::COMMA)), lookahead(tok(TT::RPAR)))).parse(input)
 }
 
 // args:
 //     | ','.(starred_expression | ( assignment_expression | expression !':=') !'=')+ [',' kwargs ]
 //     | kwargs
-fn args(input: &[Token]) -> ParseResult<Arguments> {
+fn args(input: ParserInput) -> ParseResult<Arguments> {
     pair(
         sep_by(
             starred_expression.or(left(
@@ -2653,7 +2662,7 @@ fn args(input: &[Token]) -> ParseResult<Arguments> {
 //     | ','.kwarg_or_starred+ ',' ','.kwarg_or_double_starred+
 //     | ','.kwarg_or_starred+
 //     | ','.kwarg_or_double_starred+
-fn kwargs(input: &[Token]) -> ParseResult<Vec<Expression>> {
+fn kwargs(input: ParserInput) -> ParseResult<Vec<Expression>> {
     pair(
         left(sep_by(kwarg_or_starred, TT::COMMA), tok(TT::COMMA)),
         sep_by(kwarg_or_double_starred, TT::COMMA),
@@ -2669,16 +2678,16 @@ fn kwargs(input: &[Token]) -> ParseResult<Vec<Expression>> {
 
 // starred_expression:
 //     | '*' expression
-fn starred_expression(input: &[Token]) -> ParseResult<Expression> {
+fn starred_expression(input: ParserInput) -> ParseResult<Expression> {
     right(tok(TT::STAR), expression)
-        .map(|e| Expression::Starred(Box::new(e)))
+        .map(|e| Expression::ListUnwrap(Box::new(e)))
         .parse(input)
 }
 
 // kwarg_or_starred:
 //     | NAME '=' expression
 //     | starred_expression
-fn kwarg_or_starred(input: &[Token]) -> ParseResult<Expression> {
+fn kwarg_or_starred(input: ParserInput) -> ParseResult<Expression> {
     pair(left(name, tok(TT::EQUAL)), expression)
         .map(|(n, e)| Expression::KeywordArgument(n, Box::new(e)))
         .or(starred_expression)
@@ -2688,7 +2697,7 @@ fn kwarg_or_starred(input: &[Token]) -> ParseResult<Expression> {
 // kwarg_or_double_starred:
 //     | NAME '=' expression
 //     | '**' expression
-fn kwarg_or_double_starred(input: &[Token]) -> ParseResult<Expression> {
+fn kwarg_or_double_starred(input: ParserInput) -> ParseResult<Expression> {
     pair(left(name, tok(TT::EQUAL)), expression)
         .map(|(n, e)| Expression::KeywordArgument(n, Box::new(e)))
         .or(right(tok(TT::DOUBLESTAR), expression))
@@ -2705,19 +2714,19 @@ fn kwarg_or_double_starred(input: &[Token]) -> ParseResult<Expression> {
 // star_targets:
 //     | star_target !','
 //     | star_target (',' star_target )* [',']
-fn star_targets(input: &[Token]) -> ParseResult<Vec<Expression>> {
+fn star_targets(input: ParserInput) -> ParseResult<Vec<Expression>> {
     left(sep_by(star_target, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
 // star_targets_list_seq: ','.star_target+ [',']
-fn star_targets_list_seq(input: &[Token]) -> ParseResult<Vec<Expression>> {
+fn star_targets_list_seq(input: ParserInput) -> ParseResult<Vec<Expression>> {
     left(sep_by(star_target, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
 // star_targets_tuple_seq:
 //     | star_target (',' star_target )+ [',']
 //     | star_target ','
-fn star_targets_tuple_seq(input: &[Token]) -> ParseResult<Vec<Expression>> {
+fn star_targets_tuple_seq(input: ParserInput) -> ParseResult<Vec<Expression>> {
     pair(
         star_target,
         left(
@@ -2736,7 +2745,7 @@ fn star_targets_tuple_seq(input: &[Token]) -> ParseResult<Vec<Expression>> {
 // star_target:
 //     | '*' (!'*' star_target)
 //     | target_with_star_atom
-fn star_target(input: &[Token]) -> ParseResult<Expression> {
+fn star_target(input: ParserInput) -> ParseResult<Expression> {
     right(tok(TT::STAR), right(not(tok(TT::STAR)), star_target))
         .or(target_with_star_atom)
         .parse(input)
@@ -2746,7 +2755,7 @@ fn star_target(input: &[Token]) -> ParseResult<Expression> {
 //     | t_primary '.' NAME !t_lookahead
 //     | t_primary '[' slices ']' !t_lookahead
 //     | star_atom
-fn target_with_star_atom(input: &[Token]) -> ParseResult<Expression> {
+fn target_with_star_atom(input: ParserInput) -> ParseResult<Expression> {
     pair(
         t_primary,
         left(
@@ -2771,7 +2780,7 @@ fn target_with_star_atom(input: &[Token]) -> ParseResult<Expression> {
 //     | '(' target_with_star_atom ')'
 //     | '(' [star_targets_tuple_seq] ')'
 //     | '[' [star_targets_list_seq] ']'
-fn star_atom(input: &[Token]) -> ParseResult<Expression> {
+fn star_atom(input: ParserInput) -> ParseResult<Expression> {
     name.map(Expression::Name)
         .or(left(
             right(tok(TT::LPAR), target_with_star_atom),
@@ -2794,7 +2803,7 @@ fn star_atom(input: &[Token]) -> ParseResult<Expression> {
 //     | single_subscript_attribute_target
 //     | NAME
 //     | '(' single_target ')'
-fn single_target(input: &[Token]) -> ParseResult<Expression> {
+fn single_target(input: ParserInput) -> ParseResult<Expression> {
     single_subscript_attribute_target
         .or(name.map(Expression::Name))
         .or(left(right(tok(TT::LPAR), single_target), tok(TT::RPAR)))
@@ -2819,7 +2828,7 @@ impl Selector {
 // single_subscript_attribute_target:
 //     | t_primary '.' NAME !t_lookahead
 //     | t_primary '[' slices ']' !t_lookahead
-fn single_subscript_attribute_target(input: &[Token]) -> ParseResult<Expression> {
+fn single_subscript_attribute_target(input: ParserInput) -> ParseResult<Expression> {
     pair(
         t_primary,
         right(
@@ -2840,7 +2849,7 @@ fn single_subscript_attribute_target(input: &[Token]) -> ParseResult<Expression>
 
 // t_primary:
 //     | atom &t_lookahead t_primary_tail
-fn t_primary(input: &[Token]) -> ParseResult<Expression> {
+fn t_primary(input: ParserInput) -> ParseResult<Expression> {
     pair(left(atom, lookahead(t_lookahead)), t_primary_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
@@ -2877,7 +2886,7 @@ fn t_primary(input: &[Token]) -> ParseResult<Expression> {
 //     | genexp &t_lookahead t_primary_tail
 //     | '(' [arguments] ')' &t_lookahead t_primary_tail
 //     | epsilon
-fn t_primary_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
+fn t_primary_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
     pair(
         right(tok(TT::DOT), left(name, lookahead(t_lookahead))),
         t_primary_tail,
@@ -2906,7 +2915,7 @@ fn t_primary_tail(input: &[Token]) -> ParseResult<IncompleteExpression> {
 }
 
 // t_lookahead: '(' | '[' | '.'
-fn t_lookahead(input: &[Token]) -> ParseResult<Token> {
+fn t_lookahead(input: ParserInput) -> ParseResult<Token> {
     tok(TT::LPAR)
         .or(tok(TT::LSQB))
         .or(tok(TT::DOT))
@@ -2917,14 +2926,14 @@ fn t_lookahead(input: &[Token]) -> ParseResult<Token> {
 // # --------------------------
 
 // del_targets: ','.del_target+ [',']
-fn del_targets(input: &[Token]) -> ParseResult<Vec<Expression>> {
+fn del_targets(input: ParserInput) -> ParseResult<Vec<Expression>> {
     left(sep_by(del_target, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
 // del_target:
 //     | t_primary !t_lookahead
 //     | del_t_atom
-fn del_target(input: &[Token]) -> ParseResult<Expression> {
+fn del_target(input: ParserInput) -> ParseResult<Expression> {
     left(t_primary, not(t_lookahead))
         .or(del_t_atom)
         .parse(input)
@@ -2935,7 +2944,7 @@ fn del_target(input: &[Token]) -> ParseResult<Expression> {
 //     | '(' del_target ')'
 //     | '(' [del_targets] ')'
 //     | '[' [del_targets] ']'
-fn del_t_atom(input: &[Token]) -> ParseResult<Expression> {
+fn del_t_atom(input: ParserInput) -> ParseResult<Expression> {
     name.map(Expression::Name)
         .or(left(right(tok(TT::LPAR), del_target), tok(TT::RPAR)))
         .or(

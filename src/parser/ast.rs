@@ -168,7 +168,7 @@ pub enum Pattern {
 
 #[derive(Debug, Clone)]
 pub enum Expression {
-    Starred(Box<Expression>),
+    ListUnwrap(Box<Expression>),
     BinaryOperation(Operator, Box<(Expression, Expression)>),
     UnaryOperation(Operator, Box<Expression>),
     Subscript(Box<Expression>, Name),

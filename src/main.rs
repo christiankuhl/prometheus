@@ -15,29 +15,19 @@ fn main() -> Result<(), String> {
 
 fn run_script(filename: &str) -> Result<(), String> {
     let tokens = tokenize_file(filename)?;
-    let statements = parse(&tokens);
-    match statements {
-        ParseResult::Ok((statements, rest)) => {
-            println!("\nParsed result:");
-            for statement in statements.iter() {
-                println!("\n{:?}", statement);
-                evaluate(statement);
-            }
-            if !rest.is_empty() {
-                println!("Unparsed rest:");
-                for token in rest.iter() {
-                    println!("{:}", token);
-                }
-            }
+    let (statements, errors) = parse(&tokens);
+    return if errors.is_empty() {
+        for statement in statements.iter() {
+            println!("\n{:?}", statement);
+            // evaluate(statement);
         }
-        ParseResult::Err => {
-            println!("Parse error:");
-            for token in tokens.iter() {
-                println!("{:}", token);
-            }
+        Ok(())
+    } else {
+        for error in errors {
+            println!("Error: {error:?}");
         }
+        Err("Foo".to_string())
     };
-    Ok(())
 }
 
 fn run_repl() -> ReplResult<()> {
@@ -64,18 +54,17 @@ fn run_repl() -> ReplResult<()> {
                         println!("{}", msg);
                         continue;
                     }
-                    ParserState::ContinuationNeeded => {
-                        loop {
-                            let continuation = rl.readline("... ");
-                            match continuation {
-                                Ok(line) => {
-                                    if line.as_str() == "" {
-                                        if let Ok(tok) = tokenizer.finalize() {
-                                            tokens.extend(tok);
-                                        }
-                                        break;
-                                    } 
-                                    match tokenizer.tokenize(std::iter::once(line)) {
+                    ParserState::ContinuationNeeded => loop {
+                        let continuation = rl.readline("... ");
+                        match continuation {
+                            Ok(line) => {
+                                if line.as_str() == "" {
+                                    if let Ok(tok) = tokenizer.finalize() {
+                                        tokens.extend(tok);
+                                    }
+                                    break;
+                                }
+                                match tokenizer.tokenize(std::iter::once(line)) {
                                     ParserState::Error(msg) => {
                                         println!("{}", msg);
                                         break;
@@ -83,32 +72,32 @@ fn run_repl() -> ReplResult<()> {
                                     _ => {
                                         continue;
                                     }
-                                }},
-                                Err(ReadlineError::Interrupted) => {
-                                    break 'outer;
-                                }
-                                Err(ReadlineError::Eof) => {
-                                    break 'outer;
-                                }
-                                Err(err) => {
-                                    println!("Error: {:?}", err);
-                                    break 'outer;
                                 }
                             }
+                            Err(ReadlineError::Interrupted) => {
+                                break 'outer;
+                            }
+                            Err(ReadlineError::Eof) => {
+                                break 'outer;
+                            }
+                            Err(err) => {
+                                println!("Error: {:?}", err);
+                                break 'outer;
+                            }
                         }
-                    }
+                    },
                 }
-                println!("{:?}", &tokens);
-                let ast = parse_interactive(&tokens);
-                println!("{:?}", ast);
-                match ast {
-                    ParseResult::Err => {
-                        println!("Parse error...");
+                // println!("{:?}", &tokens);
+                let (statements, errors) = parse_interactive(&tokens);
+                // println!("{:?}", ast);
+                if errors.is_empty() {
+                    for statement in statements.iter() {
+                        println!("\n{:?}", statement);
+                        evaluate(statement);
                     }
-                    ParseResult::Ok((stmts, _)) => {
-                        for stmt in stmts.iter() {
-                            evaluate(stmt);
-                        }
+                } else {
+                    for error in errors {
+                        println!("Error: {error:?}");
                     }
                 }
                 tokens.clear();

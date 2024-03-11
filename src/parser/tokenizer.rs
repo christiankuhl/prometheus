@@ -11,10 +11,16 @@ pub(crate) struct Location {
     column: usize,
 }
 
+impl std::fmt::Display for Location {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "line {}, column {}", self.line, self.column)
+    }
+}
+
 #[derive(Clone, Default, Debug)]
 pub(crate) struct Span {
-    start: Location,
-    end: Location,
+    pub(crate) start: Location,
+    pub(crate) end: Location,
 }
 
 impl Span {
