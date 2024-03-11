@@ -56,6 +56,14 @@ pub(super) trait Parser<'a, Output> {
     {
         BoxedParser::new(map(self, map_fn))
     }
+    fn pred<F>(self, predicate: F) -> BoxedParser<'a, Output>
+    where
+        Self: Sized + 'a,
+        Output: 'a,
+        F: Fn(&Output) -> bool + 'a,
+    {
+        BoxedParser::new(pred(self, predicate))
+    }
     fn or(self, parser: impl Parser<'a, Output> + 'a) -> BoxedParser<'a, Output>
     where
         Self: Sized + 'a,
@@ -132,6 +140,20 @@ pub(super) fn right<'a, A, B>(
     right_parser: impl Parser<'a, B>,
 ) -> impl Parser<'a, B> {
     map(pair(left_parser, right_parser), |(_left, right)| right)
+}
+
+pub(super) fn pred<'a, A, F>(parser: impl Parser<'a, A>, predicate: F) -> impl Parser<'a, A>
+where
+    F: Fn(&A) -> bool,
+{
+    move |input| {
+        if let ParseResult::Ok((result, rest)) = parser.parse(input) {
+            if predicate(&result) {
+                return ParseResult::Ok((result, rest));
+            }
+        }
+        ParseResult::Err
+    }
 }
 
 pub(super) fn one_or_more<'a, R>(parser: impl Parser<'a, R>) -> impl Parser<'a, Vec<R>> {

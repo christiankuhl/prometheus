@@ -1,4 +1,7 @@
-use super::tokenizer::{Span, Token, TokenType as TT, IMAGNUMBER, DECNUMBER, BINNUMBER, OCTNUMBER, HEXNUMBER, FLOATNUMBER};
+use super::tokenizer::{
+    Span, Token, TokenType as TT, BINNUMBER, DECNUMBER, FLOATNUMBER, HEXNUMBER, IMAGNUMBER,
+    OCTNUMBER,
+};
 
 #[derive(Debug, Clone)]
 pub enum Statement {
@@ -41,7 +44,9 @@ pub enum Statement {
     Global(Vec<Name>),
     Nonlocal(Vec<Name>),
     Import(Vec<Import>),
-    Raise(Option<Box<Expression>>, Option<Box<Expression>>)
+    Raise(Option<Box<Expression>>, Option<Box<Expression>>),
+    Match(Vec<Expression>, Vec<Expression>),
+    Type(Name, Vec<Expression>, Box<Expression>),
 }
 
 #[derive(Clone)]
@@ -133,6 +138,22 @@ impl From<Name> for Parameter {
 pub struct Decorator(pub(super) Expression);
 
 #[derive(Debug, Clone)]
+pub enum Pattern {
+    Wildcard,
+    Capture(Option<Box<Pattern>>, Name),
+    Literal(Expression),
+    Value(Vec<Name>),
+    Group(Box<Pattern>),
+    Sequence(Vec<Pattern>),
+    Star(Box<Pattern>),
+    DoubleStar(Name),
+    Mapping(Vec<Pattern>),
+    Class(Box<Expression>, Vec<Pattern>),
+    Disjunction(Vec<Pattern>),
+    KeyValue(Box<Expression>, Box<Pattern>),
+}
+
+#[derive(Debug, Clone)]
 pub enum Expression {
     Starred(Box<Expression>),
     BinaryOperation(Operator, Box<(Expression, Expression)>),
@@ -165,6 +186,10 @@ pub enum Expression {
     True,
     False,
     None,
+    Case(Vec<Pattern>, Option<Box<Expression>>, Vec<Statement>),
+    TypeBound(TypeBound),
+    Pattern(Box<Pattern>),
+    Attribute(Vec<Name>),
     PrimaryGenexp(Box<Expression>, Box<Expression>), // ???
 }
 
@@ -185,7 +210,15 @@ impl IncompleteExpression {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum PyString {
+pub struct TypeBound {
+    pub(super) name: Name,
+    pub(super) type_bound: Option<Box<Expression>>,
+    pub(super) starred: bool,
+    pub(super) double_starred: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum PyString {
     Literal(String),
     FString(FString),
 }
@@ -205,23 +238,28 @@ impl From<Token> for Number {
         let mut value = value.lexeme;
         if DECNUMBER.is_match(&value) {
             value = value.replace("_", "");
-            return Self::Int(i64::from_str_radix(&value, 10).unwrap())
-        } else if HEXNUMBER.is_match(&value) {
+            return Self::Int(i64::from_str_radix(&value, 10).unwrap());
+        }
+        if HEXNUMBER.is_match(&value) {
             value = value.replace("_", "");
-            return Self::Int(i64::from_str_radix(&value, 16).unwrap())
-        } else if OCTNUMBER.is_match(&value) {
+            return Self::Int(i64::from_str_radix(&value, 16).unwrap());
+        }
+        if OCTNUMBER.is_match(&value) {
             value = value.replace("_", "");
-            return Self::Int(i64::from_str_radix(&value, 8).unwrap())
-        } else if BINNUMBER.is_match(&value) {
+            return Self::Int(i64::from_str_radix(&value, 8).unwrap());
+        }
+        if BINNUMBER.is_match(&value) {
             value = value.replace("_", "");
-            return Self::Int(i64::from_str_radix(&value, 2).unwrap())
-        } else if FLOATNUMBER.is_match(&value) {
-            return Self::Float(value.parse().unwrap())
-        } else if IMAGNUMBER.is_match(&value) {
+            return Self::Int(i64::from_str_radix(&value, 2).unwrap());
+        }
+        if FLOATNUMBER.is_match(&value) {
+            return Self::Float(value.parse().unwrap());
+        }
+        if IMAGNUMBER.is_match(&value) {
             value = value.replace("_", "");
             value = value.replace("j", "");
             value = value.replace("J", "");
-            return Self::Complex(0., value.parse().unwrap())
+            return Self::Complex(0., value.parse().unwrap());
         }
         unreachable!()
     }
@@ -252,7 +290,7 @@ impl From<Expression> for Argument {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum Slice {
+pub enum Slice {
     Simple(Expression),
     Delimited(Option<Expression>, Option<Expression>, Option<Expression>),
 }
@@ -335,7 +373,6 @@ impl From<Token> for Operator {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct Module {
     pub(super) rel_level: usize,
@@ -351,6 +388,6 @@ pub struct Import {
 
 #[derive(Debug, Clone)]
 pub struct ImportItem {
-    pub(super) name: Vec<Name>,     // convention: empty Vec serves as *
+    pub(super) name: Vec<Name>, // convention: empty Vec serves as *
     pub(super) alias: Option<Name>,
 }
