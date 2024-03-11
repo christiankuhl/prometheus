@@ -243,65 +243,51 @@ macro_rules! maybe {
 
 const S_WHITESPACE: &str = r"^[ \f\t]+";
 const S_COMMENT: &str = r"^#[^\r\n]*";
-const S_NEWLINE_OR_WHITESPACE: &str = concatcp!(r"\\\r?\n", S_WHITESPACE);
-const S_IGNORE: &str = concatcp!(
-    S_WHITESPACE,
-    any!(S_NEWLINE_OR_WHITESPACE),
-    maybe!(S_COMMENT)
-);
 const S_NAME: &str = r"^\w+";
 const S_HEXNUMBER: &str = r"0[xX](?:_?[0-9a-fA-F])+";
 const S_BINNUMBER: &str = r"0[bB](?:_?[01])+";
 const S_OCTNUMBER: &str = r"0[oO](?:_?[0-7])+";
 const S_DECNUMBER: &str = r"(?:0(?:_?0)*|[1-9](?:_?[0-9])*)";
+const S_WHOLE_HEXNUMBER: &str = concatcp!("^", S_HEXNUMBER, "$");
+const S_WHOLE_BINNUMBER: &str = concatcp!("^", S_BINNUMBER, "$");
+const S_WHOLE_OCTNUMBER: &str = concatcp!("^", S_OCTNUMBER, "$");
+const S_WHOLE_DECNUMBER: &str = concatcp!("^", S_DECNUMBER, "$");
 const S_INTNUMBER: &str = group!(S_HEXNUMBER, S_BINNUMBER, S_OCTNUMBER, S_DECNUMBER);
 const S_EXPONENT: &str = r"[eE][-+]?[0-9](?:_?[0-9])*";
 const S_POINTFLOAT: &str = concatcp!(
     group!(
-        r"[0-9](?:_?[0-9])*\.(?:[0-9](?:_?[0-9])*)?",
-        r"\.[0-9](?:_?[0-9])*"
+        r"^[0-9](?:_?[0-9])*\.(?:[0-9](?:_?[0-9])*)?",
+        r"^\.[0-9](?:_?[0-9])*"
     ),
     maybe!(S_EXPONENT)
 );
-const S_EXPFLOAT: &str = concatcp!(r"[0-9](?:_?[0-9])*", S_EXPONENT);
-const S_FLOATNUMBER: &str = group!(S_POINTFLOAT, S_EXPFLOAT);
+const S_EXPFLOAT: &str = concatcp!(r" [0-9](?:_?[0-9])*", S_EXPONENT);
 const S_IMFLOAT: &str = concatcp!(S_FLOATNUMBER, r"[jJ]");
+const S_FLOATNUMBER: &str = group!(S_POINTFLOAT, S_EXPFLOAT);
 const S_IMAGNUMBER: &str = group!(r"[0-9](?:_?[0-9])*[jJ]", S_IMFLOAT);
+const S_WHOLE_FLOATNUMBER: &str = concatcp!("^", S_FLOATNUMBER, "$");
+const S_WHOLE_IMAGNUMBER: &str = concatcp!("^", S_IMAGNUMBER, "$");
 const S_NUMBER: &str = concatcp!(r"^", group!(S_IMAGNUMBER, S_FLOATNUMBER, S_INTNUMBER));
 const S_KEYWORDS: &str = r"^(\bFalse\b|\bNone\b|\bTrue\b|\band\b|\bas\b|\bassert\b|\basync\b|\bawait\b|\bbreak\b|\bclass\b|\bcontinue\b|\bdef\b|\bdel\b|\belif\b|\belse\b|\bexcept\b|\bfinally\b|\bfor\b|\bfrom\b|\bglobal\b|\bif\b|\bimport\b|\bin\b|\bis\b|\blambda\b|\bnonlocal\b|\bnot\b|\bor\b|\bpass\b|\braise\b|\breturn\b|\btry\b|\bwhile\b|\bwith\b|\byield\b)";
 const S_SOFT_KEYWORDS: &str = r"^(match\b|\bcase\b|\btype\b|\b_\b)";
 const S_STRING_START: &str = r#"^("{3}|'{3}|"{1}|'{1})"#;
-const S_SINGLE_QUOTE_END: &str = r"[^\\]?'{1}";
-const S_DOUBLE_QUOTE_END: &str = r#"[^\\]?"{1}"#;
-const S_SINGLE_QUOTE_MULTILINE_END: &str = r"[^\\]?'{3}";
-const S_DOUBLE_QUOTE_MULTILINE_END: &str = r#"[^\\]?"{3}"#;
 
 static WHITESPACE: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_WHITESPACE).expect("Error compiling regex."));
 static COMMENT: Lazy<Regex> = Lazy::new(|| Regex::new(S_COMMENT).expect("Error compiling regex."));
-static IGNORE: Lazy<Regex> = Lazy::new(|| Regex::new(S_IGNORE).expect("Error compiling regex."));
 static NAME: Lazy<Regex> = Lazy::new(|| Regex::new(S_NAME).expect("Error compiling regex."));
 pub(super) static HEXNUMBER: Lazy<Regex> =
-    Lazy::new(|| Regex::new(S_HEXNUMBER).expect("Error compiling regex."));
+    Lazy::new(|| Regex::new(S_WHOLE_HEXNUMBER).expect("Error compiling regex."));
 pub(super) static BINNUMBER: Lazy<Regex> =
-    Lazy::new(|| Regex::new(S_BINNUMBER).expect("Error compiling regex."));
+    Lazy::new(|| Regex::new(S_WHOLE_BINNUMBER).expect("Error compiling regex."));
 pub(super) static OCTNUMBER: Lazy<Regex> =
-    Lazy::new(|| Regex::new(S_OCTNUMBER).expect("Error compiling regex."));
+    Lazy::new(|| Regex::new(S_WHOLE_OCTNUMBER).expect("Error compiling regex."));
 pub(super) static DECNUMBER: Lazy<Regex> =
-    Lazy::new(|| Regex::new(S_DECNUMBER).expect("Error compiling regex."));
-static INTNUMBER: Lazy<Regex> =
-    Lazy::new(|| Regex::new(S_INTNUMBER).expect("Error compiling regex."));
-static EXPONENT: Lazy<Regex> =
-    Lazy::new(|| Regex::new(S_EXPONENT).expect("Error compiling regex."));
-static POINTFLOAT: Lazy<Regex> =
-    Lazy::new(|| Regex::new(S_POINTFLOAT).expect("Error compiling regex."));
-static EXPFLOAT: Lazy<Regex> =
-    Lazy::new(|| Regex::new(S_EXPFLOAT).expect("Error compiling regex."));
+    Lazy::new(|| Regex::new(S_WHOLE_DECNUMBER).expect("Error compiling regex."));
 pub(super) static FLOATNUMBER: Lazy<Regex> =
-    Lazy::new(|| Regex::new(S_FLOATNUMBER).expect("Error compiling regex."));
-static IMFLOAT: Lazy<Regex> = Lazy::new(|| Regex::new(S_IMFLOAT).expect("Error compiling regex."));
+    Lazy::new(|| Regex::new(S_WHOLE_FLOATNUMBER).expect("Error compiling regex."));
 pub(super) static IMAGNUMBER: Lazy<Regex> =
-    Lazy::new(|| Regex::new(S_IMAGNUMBER).expect("Error compiling regex."));
+    Lazy::new(|| Regex::new(S_WHOLE_IMAGNUMBER).expect("Error compiling regex."));
 static NUMBER: Lazy<Regex> = Lazy::new(|| Regex::new(S_NUMBER).expect("Error compiling regex."));
 static KEYWORDS: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_KEYWORDS).expect("Error compiling regex."));
