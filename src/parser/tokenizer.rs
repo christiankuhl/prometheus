@@ -1,42 +1,10 @@
+use super::locations::{Span, Location};
 use const_format::concatcp;
 use once_cell::sync::Lazy;
 use regex::{Match, Regex};
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
-
-#[derive(Clone, Default, Debug)]
-pub(crate) struct Location {
-    line: usize,
-    column: usize,
-}
-
-impl std::fmt::Display for Location {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "line {}, column {}", self.line, self.column)
-    }
-}
-
-#[derive(Clone, Default, Debug)]
-pub(crate) struct Span {
-    pub(crate) start: Location,
-    pub(crate) end: Location,
-}
-
-impl Span {
-    fn new(start_line: usize, start_col: usize, end_line: usize, end_col: usize) -> Self {
-        Self {
-            start: Location {
-                line: start_line,
-                column: start_col,
-            },
-            end: Location {
-                line: end_line,
-                column: end_col,
-            },
-        }
-    }
-}
 
 #[derive(Clone, Default, Debug)]
 pub struct Token {
@@ -374,8 +342,8 @@ impl Tokenizer {
                 Err(s) => return ParserState::Error(s),
             }
         }
-        if self.in_string || self.paren_lvl > 0  {
-            return ParserState::ContinuationNeeded
+        if self.in_string || self.paren_lvl > 0 {
+            return ParserState::ContinuationNeeded;
         }
         ParserState::Ok
     }
@@ -498,10 +466,10 @@ impl Tokenizer {
                     self.current_string = "".to_string();
                     self.in_string = true;
                     self.current.typ = TokenType::STRING;
-                    self.current.span.start = Location {
+                    self.current.span.start(Location {
                         line: lineno,
                         column: self.start,
-                    };
+                    });
                     self.start += m.end();
                     self.end += m.end();
                     continue;
@@ -524,10 +492,10 @@ impl Tokenizer {
                     if chr == string_end && quotes.len() == tok_len {
                         self.in_string = false;
                         self.end -= tok_len;
-                        self.current.span.end = Location {
+                        self.current.span.end(Location {
                             line: lineno,
                             column: self.end,
-                        };
+                        });
                         self.current.lexeme = self.current_string.clone();
                         self.push();
                         break;

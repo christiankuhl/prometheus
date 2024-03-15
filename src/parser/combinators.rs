@@ -1,15 +1,8 @@
 use std::cell::RefCell;
 
-use super::tokenizer::{Span, Token, TokenType};
-
-#[derive(Debug)]
-pub struct Error(Span, String);
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Error: {} in {} till {}", self.1, self.0.start, self.0.end)
-    }
-}
+use super::tokenizer::{Token, TokenType};
+use  super::locations::Span;
+use super::error::Error;
 
 #[derive(Debug)]
 pub enum ParseResult<'a, Output> {
@@ -27,16 +20,28 @@ impl<'a> ParserState<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct ParserInput<'a>(&'a [Token], ParserState<'a>);
+pub enum Pass {
+    FirstScan,
+    ErrorLocation,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ParserInput<'a>(&'a [Token], ParserState<'a>, Pass);
 
 impl<'a> ParserInput<'a> {
-    pub fn new(input: &'a [Token], state: ParserState<'a>) -> Self {
-        Self(input, state)
+    pub fn new(input: &'a [Token], state: ParserState<'a>, pass: Pass) -> Self {
+        Self(input, state, pass)
+    }
+    pub fn report_error(&self, error: Error) {
+        self.1.report_error(error)
+    }
+    pub fn next_span(&self) -> Span {
+        self.0.first().unwrap().span.clone() // FIXME
     }
 }
 
 impl<'a> ParserState<'a> {
-    pub(super) fn report_error(&mut self, error: Error) {
+    pub(super) fn report_error(&self, error: Error) {
         self.0.borrow_mut().push(error);
     }
 }
@@ -120,6 +125,14 @@ pub(super) trait Parser<'a, Output> {
         let alternative = move |input| self.parse(input).or_else(|| parser.parse(input));
         BoxedParser::new(alternative)
     }
+    fn expect<F>(self, error_fn: F) -> BoxedParser<'a, Output>
+    where
+        Self: Sized + 'a,
+        Output: 'a,
+        F: Fn() -> () + 'a,
+    {
+        BoxedParser::new(map_err(self, error_fn))
+    }
 }
 
 impl<'a, F, Output> Parser<'a, Output> for F
@@ -173,6 +186,22 @@ where
         parser
             .parse(input)
             .map(|(result, rest)| (map_fn(result), rest))
+    }
+}
+
+pub(super) fn map_err<'a, F, A>(
+    parser: impl Parser<'a, A>,
+    error_fn: F,
+) -> impl Fn(ParserInput<'a>) -> ParseResult<'a, A>
+where
+    F: Fn() -> (),
+{
+    move |input| match parser.parse(input) {
+        ParseResult::Err => {
+            error_fn();
+            ParseResult::Err
+        }
+        ParseResult::Ok(inner) => ParseResult::Ok(inner),
     }
 }
 
@@ -244,7 +273,7 @@ pub(super) fn maybe<'a, R>(parser: impl Parser<'a, R>) -> impl Parser<'a, Option
 pub(super) fn tok(expected_type: TokenType) -> impl Fn(ParserInput) -> ParseResult<Token> {
     move |input| match input.0.first() {
         Some(token) if token.typ == expected_type => {
-            ParseResult::Ok((token.clone(), ParserInput(&input.0[1..], input.1)))
+            ParseResult::Ok((token.clone(), ParserInput(&input.0[1..], input.1, input.2)))
         }
         _ => ParseResult::Err,
     }
@@ -256,7 +285,19 @@ pub(super) fn token(
 ) -> impl Fn(ParserInput) -> ParseResult<()> {
     move |input| match input.0.first() {
         Some(token) if token.typ == expected_type && token.lexeme.as_str() == expected_lexeme => {
-            ParseResult::Ok(((), ParserInput(&input.0[1..], input.1)))
+            ParseResult::Ok(((), ParserInput(&input.0[1..], input.1, input.2)))
+        }
+        _ => ParseResult::Err,
+    }
+}
+
+pub(super) fn token_nodiscard(
+    expected_type: TokenType,
+    expected_lexeme: &'static str,
+) -> impl Fn(ParserInput) -> ParseResult<Token> {
+    move |input| match input.0.first() {
+        Some(token) if token.typ == expected_type && token.lexeme.as_str() == expected_lexeme => {
+            ParseResult::Ok((token.clone(), ParserInput(&input.0[1..], input.1, input.2)))
         }
         _ => ParseResult::Err,
     }
@@ -296,4 +337,13 @@ pub(super) fn lookahead<'a, R>(parser: impl Parser<'a, R>) -> impl Parser<'a, ()
 
 pub(super) fn epsilon(input: ParserInput) -> ParseResult<()> {
     ParseResult::Ok(((), input))
+}
+
+pub(super) fn on_error_pass<'a, R>(parser: impl Parser<'a, R>) -> impl Parser<'a, R> {
+    move |input: ParserInput<'a>| {
+        match input.2 {
+            Pass::ErrorLocation => parser.parse(input),
+            Pass::FirstScan => ParseResult::Err,
+        }
+    }
 }

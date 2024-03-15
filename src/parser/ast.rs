@@ -1,28 +1,30 @@
+use super::locations::Span;
 use super::tokenizer::{
-    Span, Token, TokenType as TT, BINNUMBER, DECNUMBER, FLOATNUMBER, HEXNUMBER, IMAGNUMBER,
-    OCTNUMBER,
+    Token, TokenType as TT, BINNUMBER, DECNUMBER, FLOATNUMBER, HEXNUMBER, IMAGNUMBER, OCTNUMBER,
 };
 
 #[derive(Debug, Clone)]
 pub enum Statement {
-    FunctionDeclaration(FunctionDeclaration, Vec<Decorator>),
-    Continue,
-    Break,
-    Pass,
-    Expressions(Vec<Expression>),
-    Return(Vec<Expression>),
+    FunctionDeclaration(FunctionDeclaration, Vec<Decorator>, Span),
+    Continue(Span),
+    Break(Span),
+    Pass(Span),
+    Expressions(Vec<Expression>, Span),
+    Return(Vec<Expression>, Span),
     If(
         Expression,
         Vec<Statement>,
         Vec<(Expression, Vec<Statement>)>,
         Option<Vec<Statement>>,
+        Span,
     ),
-    ClassDefinition(ClassDefinition),
+    ClassDefinition(ClassDefinition, Span),
     With(
-        Vec<Expression>,        // item 
-        Vec<Statement>,         // block
-        Option<Expression>,     // type comment
-        bool,                   // async
+        Vec<Expression>,    // item
+        Vec<Statement>,     // block
+        Option<Expression>, // type comment
+        bool,               // async
+        Span,
     ),
     For(
         Vec<Expression>,        // targets
@@ -31,35 +33,44 @@ pub enum Statement {
         Option<Vec<Statement>>, // else block
         Option<Expression>,     // type comment
         bool,                   // async
+        Span,
     ),
     Try(
         Vec<Statement>,         // block
         Vec<Expression>,        // except_block
         Option<Vec<Statement>>, // else_block
         Option<Vec<Statement>>, // finally_block
+        Span,
     ),
-    While(Box<Expression>, Vec<Statement>, Option<Vec<Statement>>),
+    While(
+        Box<Expression>,
+        Vec<Statement>,
+        Option<Vec<Statement>>,
+        Span,
+    ),
     Assignment(
         Vec<Expression>,         // targets
         Option<Operator>,        // augassign
         Option<Vec<Expression>>, // rhs
         Option<Box<Expression>>, // type
+        Span,
     ),
-    Del(Vec<Expression>),
-    Yield(Box<Expression>),
-    Assert(Box<Expression>, Option<Box<Expression>>),
-    Global(Vec<Name>),
-    Nonlocal(Vec<Name>),
-    Import(Vec<Import>),
-    Raise(Option<Box<Expression>>, Option<Box<Expression>>),
-    Match(Vec<Expression>, Vec<Expression>),
-    Type(Name, Vec<Expression>, Box<Expression>),
+    Del(Vec<Expression>, Span),
+    Yield(Box<Expression>, Span),
+    Assert(Box<Expression>, Option<Box<Expression>>, Span),
+    Global(Vec<Name>, Span),
+    Nonlocal(Vec<Name>, Span),
+    Import(Vec<Import>, Span),
+    Raise(Option<Box<Expression>>, Option<Box<Expression>>, Span),
+    Match(Vec<Expression>, Vec<Expression>, Span),
+    Type(Name, Vec<Expression>, Box<Expression>, Span),
+    Invalid,
 }
 
 #[derive(Clone)]
 pub struct Name {
-    name: String,
-    span: Span,
+    pub(super) name: String,
+    pub(super) span: Span,
 }
 
 impl std::fmt::Debug for Name {
@@ -168,45 +179,58 @@ pub enum Pattern {
 
 #[derive(Debug, Clone)]
 pub enum Expression {
-    ListUnwrap(Box<Expression>),
-    BinaryOperation(Operator, Box<(Expression, Expression)>),
-    UnaryOperation(Operator, Box<Expression>),
-    Subscript(Box<Expression>, Name),
-    Call(Box<Expression>, Arguments),
-    Slice(Box<Expression>, Vec<Slice>),
-    WithItem(Box<Expression>, Option<Box<Expression>>),
-    ExceptBlock(Option<Box<Expression>>, Option<Name>, Vec<Statement>, bool),
-    Walrus(Box<Expression>, Box<Expression>),
-    Ternary(Box<Expression>, Box<Expression>, Box<Expression>),
-    Comparison(Box<Expression>, Vec<(Operator, Expression)>),
-    Strings(Vec<PyString>),
-    Yield(Vec<Expression>),
-    YieldFrom(Box<Expression>),
-    Generator(Box<Expression>, Vec<Expression>),
-    ForIfClause(Vec<Expression>, Box<Expression>, Vec<Expression>, bool),
-    Tuple(Vec<Expression>),
-    List(Vec<Expression>),
-    ListComprehension(Box<Expression>, Vec<Expression>),
-    DictUnwrap(Box<Expression>),
-    Dict(Vec<Expression>),
-    DictComprehension(Box<Expression>, Vec<Expression>),
-    Set(Vec<Expression>),
-    SetComprehension(Box<Expression>, Vec<Expression>),
-    KeywordArgument(Name, Box<Expression>),
-    FStringReplacement(FStringReplacement),
-    Name(Name),
-    Number(Number),
-    Ellipsis,
-    True,
-    False,
-    None,
-    Case(Vec<Pattern>, Option<Box<Expression>>, Vec<Statement>),
-    TypeBound(TypeBound),
-    Pattern(Box<Pattern>),
-    Attribute(Vec<Name>),
-    Lambda(Vec<Parameter>, Box<Expression>),
-    TypeComment(String),
-    PrimaryGenexp(Box<Expression>, Box<Expression>), // ???
+    ListUnwrap(Box<Expression>, Span),
+    BinaryOperation(Operator, Box<(Expression, Expression)>, Span),
+    UnaryOperation(Operator, Box<Expression>, Span),
+    Subscript(Box<Expression>, Name, Span),
+    Call(Box<Expression>, Arguments, Span),
+    Slice(Box<Expression>, Vec<Slice>, Span),
+    WithItem(Box<Expression>, Option<Box<Expression>>, Span),
+    ExceptBlock(
+        Option<Box<Expression>>,
+        Option<Name>,
+        Vec<Statement>,
+        bool,
+        Span,
+    ),
+    Walrus(Box<Expression>, Box<Expression>, Span),
+    Ternary(Box<Expression>, Box<Expression>, Box<Expression>, Span),
+    Comparison(Box<Expression>, Vec<(Operator, Expression)>, Span),
+    Strings(Vec<PyString>, Span),
+    Yield(Vec<Expression>, Span),
+    YieldFrom(Box<Expression>, Span),
+    Generator(Box<Expression>, Vec<Expression>, Span),
+    ForIfClause(
+        Vec<Expression>,
+        Box<Expression>,
+        Vec<Expression>,
+        bool,
+        Span,
+    ),
+    Tuple(Vec<Expression>, Span),
+    List(Vec<Expression>, Span),
+    ListComprehension(Box<Expression>, Vec<Expression>, Span),
+    DictUnwrap(Box<Expression>, Span),
+    Dict(Vec<Expression>, Span),
+    DictComprehension(Box<Expression>, Vec<Expression>, Span),
+    Set(Vec<Expression>, Span),
+    SetComprehension(Box<Expression>, Vec<Expression>, Span),
+    KeywordArgument(Name, Box<Expression>, Span),
+    FStringReplacement(FStringReplacement, Span),
+    Name(Name, Span),
+    Number(Number, Span),
+    Ellipsis(Span),
+    True(Span),
+    False(Span),
+    None(Span),
+    Case(Vec<Pattern>, Option<Box<Expression>>, Vec<Statement>, Span),
+    TypeBound(TypeBound, Span),
+    Pattern(Box<Pattern>, Span),
+    Attribute(Vec<Name>, Span),
+    Lambda(Vec<Parameter>, Box<Expression>, Span),
+    TypeComment(String, Span),
+    PrimaryGenexp(Box<Expression>, Box<Expression>, Span), // ???
+    Invalid,
 }
 
 #[derive(Debug, Clone)]
@@ -235,13 +259,13 @@ pub struct TypeBound {
 
 #[derive(Debug, Clone)]
 pub enum PyString {
-    Literal(String),
+    Literal(String, Span),
     FString(Vec<FString>),
 }
 
 #[derive(Debug, Clone)]
 pub enum FString {
-    Literal(String),
+    Literal(String, Span),
     Interpolated(FStringReplacement),
 }
 
