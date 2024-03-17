@@ -1,7 +1,7 @@
-use super::locations::{Span, Location};
+use super::locations::{Location, Span};
 use const_format::concatcp;
 use once_cell::sync::Lazy;
-use regex::{Regex, Captures};
+use regex::{Captures, Regex};
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
@@ -243,6 +243,7 @@ const S_WHOLE_IMAGNUMBER: &str = concatcp!("^", S_IMAGNUMBER, "$");
 const S_NUMBER: &str = concatcp!(r"^", group!(S_IMAGNUMBER, S_FLOATNUMBER, S_INTNUMBER));
 const S_KEYWORDS: &str = r"^(\bFalse\b|\bNone\b|\bTrue\b|\band\b|\bas\b|\bassert\b|\basync\b|\bawait\b|\bbreak\b|\bclass\b|\bcontinue\b|\bdef\b|\bdel\b|\belif\b|\belse\b|\bexcept\b|\bfinally\b|\bfor\b|\bfrom\b|\bglobal\b|\bif\b|\bimport\b|\bin\b|\bis\b|\blambda\b|\bnonlocal\b|\bnot\b|\bor\b|\bpass\b|\braise\b|\breturn\b|\btry\b|\bwhile\b|\bwith\b|\byield\b)";
 const S_STRING_START: &str = r#"^(?<mode>[fru]{0,3})(?<delimiter>"{3}|'{3}|"{1}|'{1})"#;
+const S_ONLY_COMMENT: &str = concatcp!(S_WHITESPACE, "#");
 
 static WHITESPACE: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_WHITESPACE).expect("Error compiling regex."));
@@ -265,6 +266,8 @@ static KEYWORDS: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_KEYWORDS).expect("Error compiling regex."));
 static STRING_START: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_STRING_START).expect("Error compiling regex."));
+static ONLY_COMMENT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(S_ONLY_COMMENT).expect("Error compiling regex."));
 
 enum StringDelimiter {
     SingleQuotes,
@@ -387,7 +390,12 @@ impl Tokenizer {
 
                 if let Some(m) = WHITESPACE.find(&line[self.start..]) {
                     let mut current_indent = *self.indent.last().unwrap();
-                    if self.start == 0 && m.end() != current_indent && self.paren_lvl == 0 {
+                    let line_only_comment = ONLY_COMMENT.is_match(&line);
+                    if self.start == 0
+                        && m.end() != current_indent
+                        && self.paren_lvl == 0
+                        && !line_only_comment
+                    {
                         if m.end() > current_indent {
                             self.current.typ = TokenType::INDENT;
                             self.indent.push(m.end());
@@ -503,15 +511,13 @@ impl Tokenizer {
             }
         }
         if self.tokens_added > 0 && !self.in_string {
-            let mut token = Token::default();
-            token.span = Span::new(lineno, self.start, lineno, self.end);
-            token.lexeme = "".to_string();
-            token.typ = if self.paren_lvl == 0 {
-                TokenType::NEWLINE
-            } else {
-                TokenType::NL
-            };
-            self.tokens.push(token);
+            if self.paren_lvl == 0 {
+                let mut token = Token::default();
+                token.span = Span::new(lineno, self.start, lineno, self.end);
+                token.lexeme = "".to_string();
+                token.typ = TokenType::NEWLINE;
+                self.tokens.push(token);
+            }
         }
         Ok(())
     }
