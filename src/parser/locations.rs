@@ -311,7 +311,7 @@ impl Locatable for FStringReplacement {
 impl Locatable for Arguments {
     fn span(&self) -> Span {
         if self.positional.is_empty() && self.keyword.is_empty() {
-            todo!()
+            return Span::Indetermined
         }
         if !self.positional.is_empty() {
             return self.positional.span().till_block(&self.keyword);
@@ -325,7 +325,15 @@ impl Locatable for Slice {
         match self {
             Self::Simple(expr) => expr.span(),
             Self::Delimited(l, m, r) => {
-                l.clone().unwrap().span().or(&m).or(&r) // FIXME
+                if l.is_some() {
+                    l.clone().unwrap().span().or(&m).or(&r)
+                } else if m.is_some() {
+                    m.clone().unwrap().span().or(&r)
+                } else if r.is_some() {
+                    r.clone().unwrap().span()
+                } else {
+                    Span::Indetermined
+                }
             }
         }
     }

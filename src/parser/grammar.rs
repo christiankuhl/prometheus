@@ -841,8 +841,8 @@ fn star_etc(input: ParserInput) -> ParseResult<Vec<Parameter>> {
         )
         .map(|(v, (mut u, w))| {
             u.push(v);
-            if let Some(p) = w {
-                u.push(p)
+            if let Some(Expression::Parameters(p, _)) = w {
+                u.extend(p)
             };
             u
         }))
@@ -852,8 +852,8 @@ fn star_etc(input: ParserInput) -> ParseResult<Vec<Parameter>> {
         )
         .map(|(v, (mut u, w))| {
             u.push(v);
-            if let Some(p) = w {
-                u.push(p)
+            if let Some(Expression::Parameters(p, _)) = w {
+                u.extend(p)
             };
             u
         }))
@@ -865,20 +865,23 @@ fn star_etc(input: ParserInput) -> ParseResult<Vec<Parameter>> {
             maybe(kwds),
         )
         .map(|(mut u, v)| {
-            if let Some(p) = v {
-                u.push(p)
+            if let Some(Expression::Parameters(p, _)) = v {
+                u.extend(p)
             };
             u
         }))
-        .or(kwds.map(|p| vec![p]))
+        .or(kwds.map(|_| vec![]))
         .parse(input)
 }
 
 // kwds:
 //     | '**' param_no_default
-fn kwds(input: ParserInput) -> ParseResult<Parameter> {
+fn kwds(input: ParserInput) -> ParseResult<Expression> {
     on_error_pass(invalid_kwds)
-        .or(right(tok(TT::DOUBLESTAR), param_no_default).map(|p| p.kwargs()))
+        .or(right(tok(TT::DOUBLESTAR), param_no_default).map(|p| {
+            let s = p.span();
+            Expression::Parameters(vec![p.kwargs()], s)
+        }))
         .parse(input)
 }
 
@@ -1259,7 +1262,7 @@ fn finally_block(input: ParserInput) -> ParseResult<Vec<Statement>> {
 //     | "match" subject_expr ':' NEWLINE INDENT case_block+ DEDENT
 fn match_stmt(input: ParserInput) -> ParseResult<Statement> {
     pair(
-        pair(token_nodiscard(TT::SOFT_KEYWORD, "match"), subject_expr),
+        pair(token_nodiscard(TT::NAME, "match"), subject_expr),
         right(
             pair(pair(tok(TT::COLON), tok(TT::NEWLINE)), tok(TT::INDENT)),
             left(one_or_more(case_block), tok(TT::DEDENT)),
@@ -1295,7 +1298,7 @@ fn subject_expr(input: ParserInput) -> ParseResult<Vec<Expression>> {
 fn case_block(input: ParserInput) -> ParseResult<Expression> {
     on_error_pass(invalid_case_block)
         .or(pair(
-            pair(token_nodiscard(TT::SOFT_KEYWORD, "case"), patterns),
+            pair(token_nodiscard(TT::NAME, "case"), patterns),
             pair(left(maybe(guard), tok(TT::COLON)), block),
         )
         .map(|((t, p), (g, b))| {
@@ -1651,7 +1654,7 @@ fn keyword_pattern(input: ParserInput) -> ParseResult<Pattern> {
 
 fn type_alias(input: ParserInput) -> ParseResult<Statement> {
     pair(
-        pair(token_nodiscard(TT::SOFT_KEYWORD, "type"), name),
+        pair(token_nodiscard(TT::NAME, "type"), name),
         pair(left(maybe(type_params), tok(TT::EQUAL)), expression),
     )
     .map(|((tt, n), (t, e))| {
@@ -2531,9 +2534,12 @@ fn group(input: ParserInput) -> ParseResult<Expression> {
 //     | 'lambda' [lambda_params] ':' expression
 fn lambdef(input: ParserInput) -> ParseResult<Expression> {
     pair(
-        pair(
-            token_nodiscard(TT::KEYWORD, "lambda"),
-            maybe(lambda_parameters),
+        left(
+            pair(
+                token_nodiscard(TT::KEYWORD, "lambda"),
+                maybe(lambda_parameters),
+            ),
+            tok(TT::COLON),
         ),
         expression,
     )
@@ -4163,10 +4169,43 @@ fn invalid_star_etc(input: ParserInput) -> ParseResult<Expression> {
 //     | '**' param a='=' { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "var-keyword argument cannot have default value") }
 //     | '**' param ',' a=param { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "arguments cannot follow var-keyword argument") }
 //     | '**' param ',' a[Token*]=('*'|'**'|'/') { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "arguments cannot follow var-keyword argument") }
-fn invalid_kwds(input: ParserInput) -> ParseResult<Parameter> {
-    todo!()
+fn invalid_kwds(input: ParserInput) -> ParseResult<Expression> {
+    right(pair(tok(TT::DOUBLESTAR), param), tok(TT::EQUAL))
+        .map(move |a| {
+            let error =
+                Error::with_underline(a.span(), "var-keyword argument cannot have default value");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        })
+        .or(right(
+            pair(tok(TT::DOUBLESTAR), param),
+            right(tok(TT::COMMA), param),
+        )
+        .map(move |a| {
+            let error =
+                Error::with_underline(a.span(), "arguments cannot follow var-keyword argument");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .or(right(
+            pair(tok(TT::DOUBLESTAR), param),
+            right(
+                tok(TT::COMMA),
+                tok(TT::STAR).or(tok(TT::DOUBLESTAR)).or(tok(TT::SLASH)),
+            ),
+        )
+        .map(move |a| {
+            let error =
+                Error::with_underline(a.span(), "arguments cannot follow var-keyword argument");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .parse(input)
 }
 
+// invalid_lambda_parameters_helper:
+//     | a=lambda_slash_with_default { _PyPegen_singleton_seq(p, a) }
+//     | lambda_param_with_default+
 // invalid_lambda_parameters:
 //     | a="/" ',' {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "at least one argument must precede /") }
@@ -4181,19 +4220,142 @@ fn invalid_kwds(input: ParserInput) -> ParseResult<Parameter> {
 //     | lambda_param_maybe_default+ '/' a='*' {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "expected comma between / and *") }
 fn invalid_lambda_parameters(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    left(tok(TT::SLASH), tok(TT::COMMA))
+        .map(move |a| {
+            let error = Error::with_underline(a.span(), "at least one argument must precede /");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        })
+        .or(right(
+            lambda_slash_no_default.or(lambda_slash_with_default),
+            right(zero_or_more(lambda_param_maybe_default), tok(TT::SLASH)),
+        )
+        .map(move |a| {
+            let error = Error::with_underline(a.span(), "/ may appear only once");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .or(right(
+            maybe(lambda_slash_no_default),
+            right(
+                zero_or_more(lambda_param_no_default),
+                right(
+                    lambda_slash_with_default
+                        .discard()
+                        .or(one_or_more(lambda_param_with_default).discard()),
+                    lambda_param_no_default,
+                ),
+            ),
+        )
+        .map(move |a| {
+            let error = Error::with_underline(
+                a.span(),
+                "parameter without a default follows parameter with a default",
+            );
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .or(right(
+            zero_or_more(lambda_param_no_default),
+            pair(
+                tok(TT::STAR),
+                right(
+                    pair(sep_by(lambda_param, TT::COMMA), maybe(tok(TT::COMMA))),
+                    tok(TT::RPAR),
+                ),
+            ),
+        )
+        .map(move |(a, b)| {
+            let error = Error::with_range(
+                a.span(),
+                b.span(),
+                "Lambda expression parameters cannot be parenthesized",
+            );
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .or(right(
+            pair(
+                maybe(lambda_slash_no_default.or(lambda_slash_with_default)),
+                zero_or_more(lambda_param_maybe_default),
+            ),
+            right(
+                pair(
+                    tok(TT::STAR),
+                    pair(
+                        tok(TT::COMMA)
+                            .discard()
+                            .or(lambda_param_no_default.discard()),
+                        zero_or_more(lambda_param_maybe_default),
+                    ),
+                ),
+                tok(TT::SLASH),
+            ),
+        )
+        .map(move |a| {
+            let error = Error::with_underline(a.span(), "/ must be ahead of *");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .or(right(
+            pair(one_or_more(lambda_param_maybe_default), tok(TT::SLASH)),
+            tok(TT::STAR),
+        )
+        .map(move |a| {
+            let error = Error::with_underline(a.span(), "expected comma between / and *");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .parse(input)
 }
 
-// invalid_lambda_parameters_helper:
-//     | a=lambda_slash_with_default { _PyPegen_singleton_seq(p, a) }
-//     | lambda_param_with_default+
 // invalid_lambda_star_etc:
 //     | '*' (':' | ',' (':' | '**')) { RAISE_SYNTAX_ERROR("named arguments must follow bare *") }
 //     | '*' lambda_param a='=' { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "var-positional argument cannot have default value") }
 //     | '*' (lambda_param_no_default | ',') lambda_param_maybe_default* a='*' (lambda_param_no_default | ',') {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "* argument may appear only once") }
 fn invalid_lambda_star_etc(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    left(
+        tok(TT::STAR),
+        tok(TT::COLON)
+            .discard()
+            .or(pair(tok(TT::COMMA), tok(TT::COLON).or(tok(TT::DOUBLESTAR))).discard()),
+    )
+    .map(move |a| {
+        let error = Error::with_underline(a.span(), "named arguments must follow bare *");
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    })
+    .or(
+        right(pair(tok(TT::STAR), lambda_param), tok(TT::EQUAL)).map(move |a| {
+            let error = Error::with_underline(
+                a.span(),
+                "var-positional argument cannot have default value",
+            );
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }),
+    )
+    .or(left(
+        right(
+            tok(TT::STAR),
+            right(
+                lambda_param_no_default
+                    .discard()
+                    .or(tok(TT::COMMA).discard()),
+                right(zero_or_more(lambda_param_maybe_default), tok(TT::STAR)),
+            ),
+        ),
+        lambda_param_no_default
+            .discard()
+            .or(tok(TT::COMMA).discard()),
+    )
+    .map(move |a| {
+        let error = Error::with_underline(a.span(), "* argument may appear only once");
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    }))
+    .parse(input)
 }
 
 // invalid_lambda_kwds:
@@ -4681,7 +4843,7 @@ fn invalid_except_star_stmt_indent(input: ParserInput) -> ParseResult<Expression
 //         RAISE_INDENTATION_ERROR("expected an indented block after 'match' statement on line %d", a->lineno) }
 fn invalid_match_stmt(input: ParserInput) -> ParseResult<Statement> {
     left(
-        token_nodiscard(TT::SOFT_KEYWORD, "match"),
+        token_nodiscard(TT::NAME, "match"),
         pair(
             subject_expr,
             pair(tok(TT::COLON), pair(tok(TT::NEWLINE), not(tok(TT::INDENT)))),
@@ -4705,7 +4867,7 @@ fn invalid_match_stmt(input: ParserInput) -> ParseResult<Statement> {
 fn invalid_case_block(input: ParserInput) -> ParseResult<Expression> {
     left(
         left(
-            left(token_nodiscard(TT::SOFT_KEYWORD, "case"), patterns),
+            left(token_nodiscard(TT::NAME, "case"), patterns),
             maybe(guard),
         ),
         tok(TT::NEWLINE),
@@ -4717,7 +4879,7 @@ fn invalid_case_block(input: ParserInput) -> ParseResult<Expression> {
     })
     .or(left(
         left(
-            left(token_nodiscard(TT::SOFT_KEYWORD, "case"), patterns),
+            left(token_nodiscard(TT::NAME, "case"), patterns),
             maybe(guard),
         ),
         pair(pair(tok(TT::COLON), tok(TT::NEWLINE)), not(tok(TT::INDENT))),

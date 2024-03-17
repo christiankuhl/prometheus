@@ -79,7 +79,6 @@ pub(crate) enum TokenType {
     COLONEQUAL,
     EXCLAMATION,
     TYPE_COMMENT,
-    SOFT_KEYWORD,
     KEYWORD,
     FSTRING_START,
     FSTRING_MIDDLE,
@@ -243,7 +242,6 @@ const S_WHOLE_FLOATNUMBER: &str = concatcp!("^", S_FLOATNUMBER, "$");
 const S_WHOLE_IMAGNUMBER: &str = concatcp!("^", S_IMAGNUMBER, "$");
 const S_NUMBER: &str = concatcp!(r"^", group!(S_IMAGNUMBER, S_FLOATNUMBER, S_INTNUMBER));
 const S_KEYWORDS: &str = r"^(\bFalse\b|\bNone\b|\bTrue\b|\band\b|\bas\b|\bassert\b|\basync\b|\bawait\b|\bbreak\b|\bclass\b|\bcontinue\b|\bdef\b|\bdel\b|\belif\b|\belse\b|\bexcept\b|\bfinally\b|\bfor\b|\bfrom\b|\bglobal\b|\bif\b|\bimport\b|\bin\b|\bis\b|\blambda\b|\bnonlocal\b|\bnot\b|\bor\b|\bpass\b|\braise\b|\breturn\b|\btry\b|\bwhile\b|\bwith\b|\byield\b)";
-const S_SOFT_KEYWORDS: &str = r"^(match\b|\bcase\b|\btype\b|\b_\b)";
 const S_STRING_START: &str = r#"^("{3}|'{3}|"{1}|'{1})"#;
 
 static WHITESPACE: Lazy<Regex> =
@@ -265,8 +263,6 @@ pub(super) static IMAGNUMBER: Lazy<Regex> =
 static NUMBER: Lazy<Regex> = Lazy::new(|| Regex::new(S_NUMBER).expect("Error compiling regex."));
 static KEYWORDS: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_KEYWORDS).expect("Error compiling regex."));
-static SOFT_KEYWORDS: Lazy<Regex> =
-    Lazy::new(|| Regex::new(S_SOFT_KEYWORDS).expect("Error compiling regex."));
 static STRING_START: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_STRING_START).expect("Error compiling regex."));
 
@@ -428,9 +424,6 @@ impl Tokenizer {
                 }
 
                 if self.find_by_regex(&KEYWORDS, TokenType::KEYWORD, line, lineno) {
-                    continue;
-                }
-                if self.find_by_regex(&SOFT_KEYWORDS, TokenType::SOFT_KEYWORD, line, lineno) {
                     continue;
                 }
                 if self.find_by_regex(&NUMBER, TokenType::NUMBER, line, lineno) {
