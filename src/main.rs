@@ -15,6 +15,9 @@ fn main() -> Result<(), String> {
 
 fn run_script(filename: &str) -> Result<(), String> {
     let tokens = tokenize_file(filename)?;
+    for token in tokens.iter() {
+        println!("{:}", token);
+    }
     let (statements, errors) = parse(&tokens);
     return if errors.is_empty() {
         for statement in statements.iter() {
