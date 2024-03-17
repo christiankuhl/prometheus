@@ -175,6 +175,7 @@ pub enum Pattern {
     Class(Box<Expression>, Vec<Pattern>),
     Disjunction(Vec<Pattern>),
     KeyValue(Box<Expression>, Box<Pattern>),
+    Invalid(Span),
 }
 
 #[derive(Debug, Clone)]
@@ -230,7 +231,11 @@ pub enum Expression {
     Lambda(Vec<Parameter>, Box<Expression>, Span),
     TypeComment(String, Span),
     PrimaryGenexp(Box<Expression>, Box<Expression>, Span), // ???
-    Invalid,
+    FString(FString, Span),
+    ImportItems(Vec<ImportItem>, Span),
+    Parameters(Vec<Parameter>, Span),
+    Arguments(Arguments, Span),
+    Invalid(Span),
 }
 
 #[derive(Debug, Clone)]
@@ -240,6 +245,7 @@ pub(crate) enum IncompleteExpression {
     Slice(Vec<Slice>, Box<IncompleteExpression>),
     BinaryOperation(Operator, Box<Expression>, Box<IncompleteExpression>),
     PrimaryGenexp(Box<Expression>, Box<IncompleteExpression>), // ???
+    Invalid,
     Empty,
 }
 

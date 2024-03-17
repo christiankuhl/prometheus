@@ -66,8 +66,10 @@ pub fn parse(input: &[Token]) -> (Vec<Statement>, Vec<Error>) {
     let parser_input = ParserInput::new(input, ParserState::new(&errors), Pass::FirstScan);
     let stmts = match file_.parse(parser_input) {
         ParseResult::Err => {
-            let parser_input = ParserInput::new(input, ParserState::new(&errors), Pass::ErrorLocation);
-            file_.parse(parser_input);
+            let parser_input =
+                ParserInput::new(input, ParserState::new(&errors), Pass::ErrorLocation);
+            let res = file_.parse(parser_input);
+            println!("{:?}", res);
             vec![]
         }
         ParseResult::Ok((stmts, _)) => stmts,
@@ -432,10 +434,7 @@ fn assert_stmt(input: ParserInput) -> ParseResult<Statement> {
 //     | import_from
 fn import_stmt(input: ParserInput) -> ParseResult<Statement> {
     on_error_pass(invalid_import)
-        .or(import_name.or(import_from.map(|t| vec![t])).map(|is| {
-            let s = is.span();
-            Statement::Import(is, s)
-        }))
+        .or(import_name.or(import_from))
         .parse(input)
 }
 
@@ -443,15 +442,18 @@ fn import_stmt(input: ParserInput) -> ParseResult<Statement> {
 // # -----------------
 
 // import_name: 'import' dotted_as_names
-fn import_name(input: ParserInput) -> ParseResult<Vec<Import>> {
+fn import_name(input: ParserInput) -> ParseResult<Statement> {
     right(token(TT::KEYWORD, "import"), dotted_as_names)
         .map(|ms| {
-            ms.iter()
+            let imports: Vec<Import> = ms
+                .iter()
                 .map(|m| Import {
                     module: m.clone(),
                     items: vec![],
                 })
-                .collect()
+                .collect();
+            let span = imports.span();
+            Statement::Import(imports, span)
         })
         .parse(input)
 }
@@ -483,7 +485,7 @@ fn count_dots(tokens: Vec<Token>) -> usize {
 // import_from:
 //     | 'from' ('.' | '...')* dotted_name 'import' import_from_targets
 //     | 'from' ('.' | '...')+ 'import' import_from_targets
-fn import_from(input: ParserInput) -> ParseResult<Import> {
+fn import_from(input: ParserInput) -> ParseResult<Statement> {
     pair(
         right(token(TT::KEYWORD, "from"), pair(import_level, dotted_name)),
         right(token(TT::KEYWORD, "import"), import_from_targets),
@@ -493,13 +495,22 @@ fn import_from(input: ParserInput) -> ParseResult<Import> {
         right(token(TT::KEYWORD, "import"), import_from_targets),
     )
     .map(|(n, t)| ((n, vec![]), t)))
-    .map(|((rel_level, path), items)| Import {
-        module: Module {
-            rel_level,
-            path,
-            alias: None,
-        },
-        items,
+    .map(|((rel_level, path), items)| {
+        let (items, span) = match items {
+            Expression::ImportItems(items, span) => (items, span),
+            _ => return Statement::Invalid,
+        };
+        Statement::Import(
+            vec![Import {
+                module: Module {
+                    rel_level,
+                    path,
+                    alias: None,
+                },
+                items,
+            }],
+            span,
+        )
     })
     .parse(input)
 }
@@ -508,17 +519,20 @@ fn import_from(input: ParserInput) -> ParseResult<Import> {
 //     | '(' import_from_as_names [','] ')'
 //     | import_from_as_names !','
 //     | '*'
-fn import_from_targets(input: ParserInput) -> ParseResult<Vec<ImportItem>> {
+fn import_from_targets(input: ParserInput) -> ParseResult<Expression> {
     left(
         right(tok(TT::LPAR), import_from_as_names),
         pair(maybe(tok(TT::COMMA)), tok(TT::RPAR)),
     )
     .or(left(import_from_as_names, not(tok(TT::COMMA))))
-    .or(tok(TT::STAR).map(|_| {
-        vec![ImportItem {
-            name: vec![],
-            alias: None,
-        }]
+    .or(tok(TT::STAR).map(|a| {
+        Expression::ImportItems(
+            vec![ImportItem {
+                name: vec![],
+                alias: None,
+            }],
+            a.span(),
+        )
     }))
     .or(on_error_pass(invalid_import_from_targets))
     .parse(input)
@@ -526,8 +540,13 @@ fn import_from_targets(input: ParserInput) -> ParseResult<Vec<ImportItem>> {
 
 // import_from_as_names:
 //     | ','.import_from_as_name+
-fn import_from_as_names(input: ParserInput) -> ParseResult<Vec<ImportItem>> {
-    sep_by(import_from_as_name, TT::COMMA).parse(input)
+fn import_from_as_names(input: ParserInput) -> ParseResult<Expression> {
+    sep_by(import_from_as_name, TT::COMMA)
+        .map(|ns| {
+            let s = ns.span();
+            Expression::ImportItems(ns, s)
+        })
+        .parse(input)
 }
 
 // import_from_as_name:
@@ -598,32 +617,49 @@ fn decorators(input: ParserInput) -> ParseResult<Vec<Decorator>> {
 //     | decorators class_def_raw
 fn class_def(input: ParserInput) -> ParseResult<Statement> {
     pair(decorators, class_def_raw)
-        .map(|(d, mut c)| {
-            let s = d.span().till(&c);
-            c.decorators = d;
-            Statement::ClassDefinition(c, s)
+        .map(|(dec, mut cls)| {
+            match cls {
+                Statement::ClassDefinition(ref mut c, ref mut s) => {
+                    *s = dec.span().till(c);
+                    c.decorators = dec;
+                }
+                _ => {}
+            };
+            cls
         })
         .parse(input)
 }
 
 // class_def_raw:
 //     | 'class' NAME [type_params] ['(' [arguments] ')' ] ':' block
-fn class_def_raw(input: ParserInput) -> ParseResult<ClassDefinition> {
-    pair(
-        right(token(TT::KEYWORD, "class"), pair(name, maybe(type_params))),
-        pair(
-            maybe(right(tok(TT::LPAR), left(arguments, tok(TT::RPAR)))),
-            right(tok(TT::COLON), block),
-        ),
-    )
-    .map(|((name, ts), (ancestors, body))| ClassDefinition {
-        name,
-        ancestors: ancestors.unwrap_or(Arguments::empty()),
-        body,
-        decorators: vec![],
-        type_params: ts.unwrap_or_default(),
-    })
-    .parse(input)
+fn class_def_raw(input: ParserInput) -> ParseResult<Statement> {
+    on_error_pass(invalid_class_def_raw)
+        .or(pair(
+            right(token(TT::KEYWORD, "class"), pair(name, maybe(type_params))),
+            pair(
+                maybe(right(tok(TT::LPAR), left(arguments, tok(TT::RPAR)))),
+                right(tok(TT::COLON), block),
+            ),
+        )
+        .map(|((name, ts), (ancestors, body))| {
+            let span = name.span().till_block(&body);
+            let ancestors = match ancestors {
+                Some(Expression::Arguments(args, _)) => args,
+                None => Arguments::empty(),
+                _ => return Statement::Invalid,
+            };
+            Statement::ClassDefinition(
+                ClassDefinition {
+                    name,
+                    ancestors,
+                    body,
+                    decorators: vec![],
+                    type_params: ts.unwrap_or_default(),
+                },
+                span,
+            )
+        }))
+        .parse(input)
 }
 
 // # Function definitions
@@ -633,9 +669,15 @@ fn class_def_raw(input: ParserInput) -> ParseResult<ClassDefinition> {
 //     | decorators function_def_raw
 fn function_def(input: ParserInput) -> ParseResult<Statement> {
     pair(decorators, function_def_raw)
-        .map(|(dec, fun)| {
-            let s = dec.span().till(&fun);
-            Statement::FunctionDeclaration(fun, dec, s)
+        .map(|(dec, mut fun)| {
+            match fun {
+                Statement::FunctionDeclaration(ref f, ref mut d, ref mut s) => {
+                    *s = dec.span().till(f);
+                    (*d).extend(dec);
+                }
+                _ => {}
+            }
+            fun
         })
         .parse(input)
 }
@@ -643,27 +685,39 @@ fn function_def(input: ParserInput) -> ParseResult<Statement> {
 // function_def_raw:
 //     | 'def' NAME [type_params] '(' [params] ')' ['->' expression ] ':' [func_type_comment] block
 //     | ASYNC 'def' NAME [type_params] '(' [params] ')' ['->' expression ] ':' [func_type_comment] block
-fn function_def_raw(input: ParserInput) -> ParseResult<FunctionDeclaration> {
-    pair(
-        maybe(token(TT::KEYWORD, "async")),
-        pair(
+fn function_def_raw(input: ParserInput) -> ParseResult<Statement> {
+    on_error_pass(invalid_def_raw)
+        .or(pair(
+            maybe(token(TT::KEYWORD, "async")),
             pair(
-                right(token(TT::KEYWORD, "def"), name),
-                right(
-                    tok(TT::LPAR),
-                    left(params, pair(tok(TT::RPAR), tok(TT::COLON))),
+                pair(
+                    right(token(TT::KEYWORD, "def"), name),
+                    right(
+                        tok(TT::LPAR),
+                        left(params, pair(tok(TT::RPAR), tok(TT::COLON))),
+                    ),
                 ),
+                block,
             ),
-            block,
-        ),
-    )
-    .map(|(a, ((n, p), b))| FunctionDeclaration {
-        name: n,
-        parameters: p,
-        code: b,
-        is_async: a.is_some(),
-    })
-    .parse(input)
+        )
+        .map(|(a, ((n, p), b))| {
+            let span = n.span().till_block(&b);
+            let parameters = match p {
+                Expression::Parameters(p, _) => p,
+                _ => return Statement::Invalid,
+            };
+            Statement::FunctionDeclaration(
+                FunctionDeclaration {
+                    name: n,
+                    parameters,
+                    code: b,
+                    is_async: a.is_some(),
+                },
+                vec![],
+                span,
+            )
+        }))
+        .parse(input)
 }
 
 // # Function parameters
@@ -674,9 +728,12 @@ fn name(input: ParserInput) -> ParseResult<Name> {
 
 // params:
 //     | parameters
-fn params(input: ParserInput) -> ParseResult<Vec<Parameter>> {
+fn params(input: ParserInput) -> ParseResult<Expression> {
     on_error_pass(invalid_parameters)
-        .or(parameters)
+        .or(parameters.map(|p| {
+            let s = p.span();
+            Expression::Parameters(p, s)
+        }))
         .parse(input)
 }
 
@@ -777,50 +834,51 @@ fn slash_with_default(input: ParserInput) -> ParseResult<Vec<Parameter>> {
 //     | '*' ',' param_maybe_default+ [kwds]
 //     | kwds
 fn star_etc(input: ParserInput) -> ParseResult<Vec<Parameter>> {
-    pair(
-        right(tok(TT::STAR), param_no_default),
-        pair(zero_or_more(param_maybe_default), maybe(kwds)),
-    )
-    .map(|(v, (mut u, w))| {
-        u.push(v);
-        if let Some(p) = w {
-            u.push(p)
-        };
-        u
-    })
-    .or(pair(
-        right(tok(TT::STAR), param_no_default_star_annotation),
-        pair(zero_or_more(param_maybe_default), maybe(kwds)),
-    )
-    .map(|(v, (mut u, w))| {
-        u.push(v);
-        if let Some(p) = w {
-            u.push(p)
-        };
-        u
-    }))
-    .or(pair(
-        right(
-            pair(tok(TT::STAR), tok(TT::COMMA)),
-            one_or_more(param_maybe_default),
-        ),
-        maybe(kwds),
-    )
-    .map(|(mut u, v)| {
-        if let Some(p) = v {
-            u.push(p)
-        };
-        u
-    }))
-    .or(kwds.map(|p| vec![p]))
-    .parse(input)
+    on_error_pass(invalid_star_etc.map(|_| vec![]))
+        .or(pair(
+            right(tok(TT::STAR), param_no_default),
+            pair(zero_or_more(param_maybe_default), maybe(kwds)),
+        )
+        .map(|(v, (mut u, w))| {
+            u.push(v);
+            if let Some(p) = w {
+                u.push(p)
+            };
+            u
+        }))
+        .or(pair(
+            right(tok(TT::STAR), param_no_default_star_annotation),
+            pair(zero_or_more(param_maybe_default), maybe(kwds)),
+        )
+        .map(|(v, (mut u, w))| {
+            u.push(v);
+            if let Some(p) = w {
+                u.push(p)
+            };
+            u
+        }))
+        .or(pair(
+            right(
+                pair(tok(TT::STAR), tok(TT::COMMA)),
+                one_or_more(param_maybe_default),
+            ),
+            maybe(kwds),
+        )
+        .map(|(mut u, v)| {
+            if let Some(p) = v {
+                u.push(p)
+            };
+            u
+        }))
+        .or(kwds.map(|p| vec![p]))
+        .parse(input)
 }
 
 // kwds:
 //     | '**' param_no_default
 fn kwds(input: ParserInput) -> ParseResult<Parameter> {
-    right(tok(TT::DOUBLESTAR), param_no_default)
-        .map(|p| p.kwargs())
+    on_error_pass(invalid_kwds)
+        .or(right(tok(TT::DOUBLESTAR), param_no_default).map(|p| p.kwargs()))
         .parse(input)
 }
 
@@ -915,7 +973,9 @@ fn star_annotation(input: ParserInput) -> ParseResult<Expression> {
 
 // default: '=' expression  | invalid_default
 fn default(input: ParserInput) -> ParseResult<Expression> {
-    right(tok(TT::EQUAL), expression).parse(input)
+    right(tok(TT::EQUAL), expression)
+        .or(on_error_pass(invalid_default))
+        .parse(input)
 }
 
 // # If statement
@@ -1233,15 +1293,16 @@ fn subject_expr(input: ParserInput) -> ParseResult<Vec<Expression>> {
 // case_block:
 //     | "case" patterns guard? ':' block
 fn case_block(input: ParserInput) -> ParseResult<Expression> {
-    pair(
-        pair(token_nodiscard(TT::SOFT_KEYWORD, "case"), patterns),
-        pair(left(maybe(guard), tok(TT::COLON)), block),
-    )
-    .map(|((t, p), (g, b))| {
-        let s = t.span.till_block(&b);
-        Expression::Case(p, g.map(Box::new), b, s)
-    })
-    .parse(input)
+    on_error_pass(invalid_case_block)
+        .or(pair(
+            pair(token_nodiscard(TT::SOFT_KEYWORD, "case"), patterns),
+            pair(left(maybe(guard), tok(TT::COLON)), block),
+        )
+        .map(|((t, p), (g, b))| {
+            let s = t.span.till_block(&b);
+            Expression::Case(p, g.map(Box::new), b, s)
+        }))
+        .parse(input)
 }
 
 // guard: 'if' named_expression
@@ -1713,22 +1774,23 @@ fn expressions(input: ParserInput) -> ParseResult<Vec<Expression>> {
 //     | disjunction
 //     | lambdef
 fn expression(input: ParserInput) -> ParseResult<Expression> {
-    pair(
-        disjunction,
-        maybe(pair(
-            right(token(TT::KEYWORD, "if"), disjunction),
-            right(token(TT::KEYWORD, "else"), expression),
-        )),
-    )
-    .map(|(t, o)| match o {
-        Some((c, e)) => {
-            let s = t.span().till(&e);
-            Expression::Ternary(Box::new(c), Box::new(t), Box::new(e), s)
-        }
-        None => t,
-    })
-    .or(lambdef)
-    .parse(input)
+    on_error_pass(invalid_expression.or(invalid_legacy_expression))
+        .or(pair(
+            disjunction,
+            maybe(pair(
+                right(token(TT::KEYWORD, "if"), disjunction),
+                right(token(TT::KEYWORD, "else"), expression),
+            )),
+        )
+        .map(|(t, o)| match o {
+            Some((c, e)) => {
+                let s = t.span().till(&e);
+                Expression::Ternary(Box::new(c), Box::new(t), Box::new(e), s)
+            }
+            None => t,
+        }))
+        .or(lambdef)
+        .parse(input)
 }
 
 // yield_expr:
@@ -2013,6 +2075,10 @@ fn bitwise_or(input: ParserInput) -> ParseResult<Expression> {
                             tail,
                         )
                     }
+                    IncompleteExpression::Invalid => (
+                        Expression::Invalid(current_expr.span()),
+                        Box::new(IncompleteExpression::Empty),
+                    ),
                     _ => unreachable!(),
                 };
             }
@@ -2056,6 +2122,10 @@ fn bitwise_xor(input: ParserInput) -> ParseResult<Expression> {
                             tail,
                         )
                     }
+                    IncompleteExpression::Invalid => (
+                        Expression::Invalid(current_expr.span()),
+                        Box::new(IncompleteExpression::Empty),
+                    ),
                     _ => unreachable!(),
                 };
             }
@@ -2099,6 +2169,10 @@ fn bitwise_and(input: ParserInput) -> ParseResult<Expression> {
                             tail,
                         )
                     }
+                    IncompleteExpression::Invalid => (
+                        Expression::Invalid(current_expr.span()),
+                        Box::new(IncompleteExpression::Empty),
+                    ),
                     _ => unreachable!(),
                 };
             }
@@ -2140,6 +2214,10 @@ fn shift_expr(input: ParserInput) -> ParseResult<Expression> {
                             tail,
                         )
                     }
+                    IncompleteExpression::Invalid => (
+                        Expression::Invalid(current_expr.span()),
+                        Box::new(IncompleteExpression::Empty),
+                    ),
                     _ => unreachable!(),
                 };
             }
@@ -2183,7 +2261,10 @@ fn sum(input: ParserInput) -> ParseResult<Expression> {
                             tail,
                         )
                     }
-
+                    IncompleteExpression::Invalid => (
+                        Expression::Invalid(current_expr.span()),
+                        Box::new(IncompleteExpression::Empty),
+                    ),
                     _ => unreachable!(),
                 };
             }
@@ -2232,6 +2313,10 @@ fn term(input: ParserInput) -> ParseResult<Expression> {
                             tail,
                         )
                     }
+                    IncompleteExpression::Invalid => (
+                        Expression::Invalid(current_expr.span()),
+                        Box::new(IncompleteExpression::Empty),
+                    ),
                     _ => unreachable!(),
                 };
             }
@@ -2321,6 +2406,10 @@ fn primary(input: ParserInput) -> ParseResult<Expression> {
                             tail,
                         )
                     }
+                    IncompleteExpression::Invalid => (
+                        Expression::Invalid(current_expr.span()),
+                        Box::new(IncompleteExpression::Empty),
+                    ),
                     _ => unreachable!(),
                 };
             }
@@ -2343,7 +2432,12 @@ fn primary_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
             primary_tail,
         )
         .map(|(a, tail)| {
-            IncompleteExpression::Call(a.unwrap_or(Arguments::empty()), Box::new(tail))
+            let args = match a {
+                Some(Expression::Arguments(args, _)) => args,
+                None => Arguments::empty(),
+                _ => return IncompleteExpression::Invalid,
+            };
+            IncompleteExpression::Call(args, Box::new(tail))
         }))
         .or(pair(
             right(tok(TT::LSQB), left(slices, tok(TT::RSQB))),
@@ -2445,7 +2539,11 @@ fn lambdef(input: ParserInput) -> ParseResult<Expression> {
     )
     .map(|((t, p), b)| {
         let s = t.span.till(&b);
-        Expression::Lambda(p.unwrap_or_default(), Box::new(b), s)
+        match p {
+            Some(Expression::Parameters(p, _)) => Expression::Lambda(p, Box::new(b), s),
+            None => Expression::Lambda(vec![], Box::new(b), s),
+            _ => Expression::Invalid(s),
+        }
     })
     .parse(input)
 }
@@ -2463,7 +2561,7 @@ fn lambdef(input: ParserInput) -> ParseResult<Expression> {
 //     | lambda_param_no_default+ lambda_param_with_default* [lambda_star_etc]
 //     | lambda_param_with_default+ [lambda_star_etc]
 //     | lambda_star_etc
-fn lambda_parameters(input: ParserInput) -> ParseResult<Vec<Parameter>> {
+fn lambda_parameters(input: ParserInput) -> ParseResult<Expression> {
     on_error_pass(invalid_lambda_parameters)
         .or(pair(
             pair(
@@ -2476,11 +2574,16 @@ fn lambda_parameters(input: ParserInput) -> ParseResult<Vec<Parameter>> {
             ),
         )
         .map(|((mut p, q), (r, s))| {
+            let u = p.span().till(&r);
             p.extend(q);
             p.extend(r);
-            p.extend(s.unwrap_or_default());
-            p
-        }))
+            match s {
+                Some(Expression::Parameters(t, _)) => p.extend(t),
+                None => {}
+                _ => return Expression::Invalid(u.clone()),
+            }
+            Expression::Parameters(p, u)
+        })
         .or(pair(
             pair(
                 lambda_slash_with_default,
@@ -2489,9 +2592,14 @@ fn lambda_parameters(input: ParserInput) -> ParseResult<Vec<Parameter>> {
             maybe(lambda_star_etc),
         )
         .map(|((mut p, q), r)| {
+            let u = p.span().till(&q);
             p.extend(q);
-            p.extend(r.unwrap_or_default());
-            p
+            match r {
+                Some(Expression::Parameters(s, _)) => p.extend(s),
+                None => {}
+                _ => return Expression::Invalid(u.clone()),
+            }
+            Expression::Parameters(p, u)
         }))
         .or(pair(
             pair(
@@ -2501,18 +2609,28 @@ fn lambda_parameters(input: ParserInput) -> ParseResult<Vec<Parameter>> {
             maybe(lambda_star_etc),
         )
         .map(|((mut p, q), r)| {
+            let u = p.span().till(&q);
             p.extend(q);
-            p.extend(r.unwrap_or_default());
-            p
+            match r {
+                Some(Expression::Parameters(s, _)) => p.extend(s),
+                None => {}
+                _ => return Expression::Invalid(u.clone()),
+            }
+            Expression::Parameters(p, u)
         }))
         .or(pair(
             one_or_more(lambda_param_with_default),
             maybe(lambda_star_etc),
         )
         .map(|(mut p, q)| {
-            p.extend(q.unwrap_or_default());
-            p
-        }))
+            let u = p.span();
+            match q {
+                Some(Expression::Parameters(s, _)) => p.extend(s),
+                None => {}
+                _ => return Expression::Invalid(u.clone()),
+            }
+            Expression::Parameters(p, u)
+        })))
         .or(lambda_star_etc)
         .parse(input)
 }
@@ -2553,19 +2671,23 @@ fn lambda_slash_with_default(input: ParserInput) -> ParseResult<Vec<Parameter>> 
 //     | '*' lambda_param_no_default lambda_param_maybe_default* [lambda_kwds]
 //     | '*' ',' lambda_param_maybe_default+ [lambda_kwds]
 //     | lambda_kwds
-fn lambda_star_etc(input: ParserInput) -> ParseResult<Vec<Parameter>> {
+fn lambda_star_etc(input: ParserInput) -> ParseResult<Expression> {
     on_error_pass(invalid_lambda_star_etc)
         .or(pair(
             right(tok(TT::STAR), lambda_param_no_default),
             pair(zero_or_more(lambda_param_maybe_default), maybe(lambda_kwds)),
         )
         .map(|(mut p, (mut q, r))| {
+            let u = p.span().till(&q).or(&r);
             p.starred = true;
             q.insert(0, p);
             if let Some(kwds) = r {
-                q.push(kwds);
+                match kwds {
+                    Expression::Parameters(ps, _) => q.extend(ps),
+                    _ => return Expression::Invalid(u.clone()),
+                }
             }
-            q
+            Expression::Parameters(q, u)
         }))
         .or(pair(
             right(
@@ -2575,23 +2697,30 @@ fn lambda_star_etc(input: ParserInput) -> ParseResult<Vec<Parameter>> {
             maybe(lambda_kwds),
         )
         .map(|(mut p, q)| {
+            let u = p.span().till(&p).or(&q);
             if let Some(kwds) = q {
-                p.push(kwds);
+                match kwds {
+                    Expression::Parameters(ps, _) => p.extend(ps),
+                    _ => return Expression::Invalid(u.clone()),
+                }
             }
-            p
+            Expression::Parameters(p, u)
         }))
-        .or(lambda_kwds.map(|k| vec![k]))
+        .or(lambda_kwds.map(|k| match k {
+            Expression::Parameters(_, _) => return k,
+            _ => return Expression::Invalid(k.span()),
+        }))
         .parse(input)
 }
 
 // lambda_kwds:
 //     | '**' lambda_param_no_default
-fn lambda_kwds(input: ParserInput) -> ParseResult<Parameter> {
+fn lambda_kwds(input: ParserInput) -> ParseResult<Expression> {
     on_error_pass(invalid_lambda_kwds)
         .or(
-            right(tok(TT::DOUBLESTAR), lambda_param_no_default).map(|mut p| {
-                p.double_starred = true;
-                p
+            right(tok(TT::DOUBLESTAR), lambda_param_no_default).map(|param| {
+                let span = param.span();
+                Expression::Parameters(vec![param], span)
             }),
         )
         .parse(input)
@@ -2649,16 +2778,25 @@ fn lambda_param(input: ParserInput) -> ParseResult<Parameter> {
 // fstring_middle:
 //     | fstring_replacement_field
 //     | FSTRING_MIDDLE
-fn fstring_middle(input: ParserInput) -> ParseResult<FString> {
+fn fstring_middle(input: ParserInput) -> ParseResult<Expression> {
     fstring_replacement_field
-        .map(FString::Interpolated)
-        .or(tok(TT::FSTRING_MIDDLE).map(|f| FString::Literal(f.lexeme, f.span)))
+        .map(|fs| {
+            if let Expression::FStringReplacement(f, s) = fs {
+                Expression::FString(FString::Interpolated(f), s)
+            } else {
+                fs
+            }
+        })
+        .or(tok(TT::FSTRING_MIDDLE).map(|f| {
+            let s = f.span;
+            Expression::FString(FString::Literal(f.lexeme, s.clone()), s.clone())
+        }))
         .parse(input)
 }
 
 // fstring_replacement_field:
 //     | '{' (yield_expr | star_expressions) '='? [fstring_conversion] [fstring_full_format_spec] '}'
-fn fstring_replacement_field(input: ParserInput) -> ParseResult<FStringReplacement> {
+fn fstring_replacement_field(input: ParserInput) -> ParseResult<Expression> {
     pair(
         pair(
             right(
@@ -2669,12 +2807,19 @@ fn fstring_replacement_field(input: ParserInput) -> ParseResult<FStringReplaceme
         ),
         left(maybe(fstring_full_format_spec), tok(TT::RBRACE)),
     )
-    .map(|((exprs, (dbg, conversion)), fmt)| FStringReplacement {
-        exprs,
-        debug: dbg.is_some(),
-        conversion,
-        format_specs: fmt.unwrap_or_default(),
+    .map(|((exprs, (dbg, conversion)), fmt)| {
+        let span = exprs.span();
+        Expression::FStringReplacement(
+            FStringReplacement {
+                exprs,
+                debug: dbg.is_some(),
+                conversion,
+                format_specs: fmt.unwrap_or_default(),
+            },
+            span,
+        )
     })
+    .or(invalid_replacement_field)
     .parse(input)
 }
 
@@ -2696,21 +2841,25 @@ fn fstring_full_format_spec(input: ParserInput) -> ParseResult<Vec<Expression>> 
 fn fstring_format_spec(input: ParserInput) -> ParseResult<Expression> {
     tok(TT::FSTRING_MIDDLE)
         .map(|t| Expression::Strings(vec![PyString::Literal(t.lexeme, t.span.clone())], t.span))
-        .or(fstring_replacement_field.map(|t| {
-            let s = t.span();
-            Expression::FStringReplacement(t, s)
-        }))
+        .or(fstring_replacement_field)
         .parse(input)
 }
 
 // fstring:
 //     | FSTRING_START fstring_middle* FSTRING_END
-fn fstring(input: ParserInput) -> ParseResult<PyString> {
+fn fstring(input: ParserInput) -> ParseResult<Expression> {
     left(
         right(tok(TT::FSTRING_START), zero_or_more(fstring_middle)),
         tok(TT::FSTRING_END),
     )
-    .map(PyString::FString)
+    .map(|sv| {
+        let span = sv.span();
+        if sv.iter().all(|s| matches!(s, Expression::FString(_, _))) {
+            todo!()
+        } else {
+            Expression::Invalid(span)
+        }
+    })
     .parse(input)
 }
 
@@ -2722,9 +2871,7 @@ fn string(input: ParserInput) -> ParseResult<Token> {
 // strings: (fstring|string)+
 fn strings(input: ParserInput) -> ParseResult<Expression> {
     one_or_more(
-        string
-            .map(|t| PyString::Literal(t.lexeme, t.span))
-            .or(fstring),
+        string.map(|t| PyString::Literal(t.lexeme, t.span)), // .or(fstring), FIXME
     )
     .map(|t| {
         let s = t.span();
@@ -2874,7 +3021,7 @@ fn for_if_clause(input: ParserInput) -> ParseResult<Expression> {
         Expression::ForIfClause(tgt, Box::new(set), ifs, a.is_some(), s)
     })
     .or(on_error_pass(
-        invalid_for_target.map(|_| Expression::Invalid),
+        invalid_for_target.map(|s| Expression::Invalid(s.span())),
     ))
     .parse(input)
 }
@@ -2947,10 +3094,16 @@ fn dictcomp(input: ParserInput) -> ParseResult<Expression> {
 
 // arguments:
 //     | args [','] &')'
-fn arguments(input: ParserInput) -> ParseResult<Arguments> {
-    left(args, pair(maybe(tok(TT::COMMA)), lookahead(tok(TT::RPAR))))
-        .or(on_error_pass(invalid_arguments))
-        .parse(input)
+fn arguments(input: ParserInput) -> ParseResult<Expression> {
+    left(
+        args.map(|a| {
+            let s = a.span();
+            Expression::Arguments(a, s)
+        }),
+        pair(maybe(tok(TT::COMMA)), lookahead(tok(TT::RPAR))),
+    )
+    .or(on_error_pass(invalid_arguments))
+    .parse(input)
 }
 
 // args:
@@ -2971,7 +3124,10 @@ fn args(input: ParserInput) -> ParseResult<Arguments> {
         positional: pos.to_vec(),
         keyword: kw.unwrap_or_default(),
     })
-    // .or(kwargs) FIXME
+    .or(kwargs.map(|args| Arguments {
+        positional: vec![],
+        keyword: args,
+    }))
     .parse(input)
 }
 
@@ -3224,7 +3380,10 @@ fn t_primary(input: ParserInput) -> ParseResult<Expression> {
                             tail,
                         )
                     }
-
+                    IncompleteExpression::Invalid => (
+                        Expression::Invalid(current_expr.span()),
+                        Box::new(IncompleteExpression::Empty),
+                    ),
                     _ => unreachable!(),
                 };
             }
@@ -3262,7 +3421,13 @@ fn t_primary_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
         ),
         t_primary_tail,
     )
-    .map(|(n, tail)| IncompleteExpression::Call(n, Box::new(tail))))
+    .map(|(n, tail)| {
+        let args = match n {
+            Expression::Arguments(args, _) => args,
+            _ => return IncompleteExpression::Invalid,
+        };
+        IncompleteExpression::Call(args, Box::new(tail))
+    }))
     .or(epsilon.map(|_| IncompleteExpression::Empty))
     .parse(input)
 }
@@ -3333,6 +3498,7 @@ fn del_t_atom(input: ParserInput) -> ParseResult<Expression> {
 
 // func_type_comment:
 //     | NEWLINE TYPE_COMMENT &(NEWLINE INDENT)   # Must be followed by indented block
+//     | invalid_double_type_comments
 //     | TYPE_COMMENT
 
 // # ========================= END OF THE GRAMMAR ===========================
@@ -3353,8 +3519,84 @@ fn del_t_atom(input: ParserInput) -> ParseResult<Expression> {
 //     | args ',' a=expression b=for_if_clauses {
 //         RAISE_SYNTAX_ERROR_KNOWN_RANGE(a, _PyPegen_get_last_comprehension_item(PyPegen_last_item(b, comprehension_ty)), "Generator expression must be parenthesized") }
 //     | a=args ',' args { _PyPegen_arguments_parsing_error(p, a) }
-fn invalid_arguments(input: ParserInput) -> ParseResult<Arguments> {
-    todo!()
+fn invalid_arguments(input: ParserInput) -> ParseResult<Expression> {
+    right(
+        sep_by(
+            starred_expression.discard().or(pair(
+                assignment_expression
+                    .discard()
+                    .or(pair(expression, not(tok(TT::COLONEQUAL))).discard()),
+                not(tok(TT::EQUAL)),
+            )
+            .discard()),
+            TT::COMMA,
+        ),
+        right(tok(TT::COMMA), tok(TT::STAR)),
+    )
+    .map(move |a| {
+        let error = Error::with_underline(
+            a.span(),
+            "iterable argument unpacking follows keyword argument unpacking",
+        );
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    })
+    .or(left(
+        pair(expression, for_if_clauses),
+        pair(
+            tok(TT::COMMA),
+            maybe(
+                args.discard()
+                    .or(pair(expression, for_if_clauses).discard()),
+            ),
+        ),
+    )
+    .map(move |(a, b)| {
+        let error = Error::with_range(
+            a.span(),
+            b.span(),
+            "Generator expression must be parenthesized",
+        );
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    }))
+    .or(
+        left(pair(name, tok(TT::EQUAL)), pair(expression, for_if_clauses)).map(move |(a, b)| {
+            let error = Error::with_range(
+                a.span(),
+                b.span(),
+                "invalid syntax. Maybe you meant '==' or ':=' instead of '='?",
+            );
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }),
+    )
+    .or(right(
+        maybe(pair(args, tok(TT::COMMA))),
+        left(
+            pair(name, tok(TT::EQUAL)),
+            lookahead(tok(TT::COMMA).or(tok(TT::RPAR))),
+        ),
+    )
+    .map(move |(a, b)| {
+        let error = Error::with_range(a.span(), b.span(), "expected argument value expression");
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    }))
+    //     FIXME: | a=args b=for_if_clauses { _PyPegen_nonparen_genexp_in_call(p, a, b) }
+    .or(
+        right(pair(args, tok(TT::COMMA)), pair(expression, for_if_clauses)).map(move |(a, b)| {
+            let error = Error::with_range(
+                a.span(),
+                b.span(),
+                "Generator expression must be parenthesized",
+            );
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }),
+    )
+    //  FIXME:   | a=args ',' args { _PyPegen_arguments_parsing_error(p, a) }
+    .parse(input)
 }
 
 // invalid_kwarg:
@@ -3375,19 +3617,23 @@ fn invalid_kwarg(input: ParserInput) -> ParseResult<Expression> {
         tok(TT::EQUAL),
     )
     .map(move |(t, s)| {
-        let error = Error::with_range(t.span, s.span, &format!("cannot assign to {}", t.lexeme));
+        let error = Error::with_range(
+            t.span(),
+            s.span(),
+            &format!("cannot assign to {}", t.lexeme),
+        );
         input.report_error(error);
-        Expression::Invalid
+        Expression::Invalid(t.span().till(&s))
     })
     .or(
         left(pair(name, tok(TT::EQUAL)), pair(expression, for_if_clauses)).map(move |(t, s)| {
             let error = Error::with_range(
-                t.span,
-                s.span,
+                t.span(),
+                s.span(),
                 "invalid syntax. Maybe you meant '==' or ':=' instead of '='?",
             );
             input.report_error(error);
-            Expression::Invalid
+            Expression::Invalid(t.span.till(&s))
         }),
     )
     .or(right(
@@ -3401,7 +3647,7 @@ fn invalid_kwarg(input: ParserInput) -> ParseResult<Expression> {
             "expression cannot contain assignment, perhaps you meant '=='?",
         );
         input.report_error(error);
-        Expression::Invalid
+        Expression::Invalid(t.span().till(&s))
     }))
     .or(pair(
         left(tok(TT::DOUBLESTAR), expression),
@@ -3409,12 +3655,12 @@ fn invalid_kwarg(input: ParserInput) -> ParseResult<Expression> {
     )
     .map(move |(t, s)| {
         let error = Error::with_range(
-            t.span,
+            t.span(),
             s.span(),
             "cannot assign to keyword argument unpacking",
         );
         input.report_error(error);
-        Expression::Invalid
+        Expression::Invalid(t.span.till(&s))
     }))
     .parse(input)
 }
@@ -3433,7 +3679,23 @@ fn expression_without_invalid(input: ParserInput) -> ParseResult<Expression> {
 //         _PyPegen_check_legacy_stmt(p, a) ? RAISE_SYNTAX_ERROR_KNOWN_RANGE(a, b,
 //             "Missing parentheses in call to '%U'. Did you mean %U(...)?", a->v.Name.id, a->v.Name.id) : NULL}
 fn invalid_legacy_expression(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    pair(
+        name.pred(|n| n.name.as_str() == "exec" || n.name.as_str() == "print"),
+        right(not(tok(TT::LPAR)), star_expressions),
+    )
+    .map(move |(a, b)| {
+        let error = Error::with_range(
+            a.span(),
+            b.span(),
+            &format!(
+                "Missing parentheses in call to '{}'. Did you mean {}(...)?",
+                a.name, a.name
+            ),
+        );
+        input.report_error(error);
+        Expression::Invalid(a.span().till(&b))
+    })
+    .parse(input)
 }
 
 // invalid_expression:
@@ -3445,8 +3707,37 @@ fn invalid_legacy_expression(input: ParserInput) -> ParseResult<Expression> {
 //    | a=disjunction 'if' b=disjunction !('else'|':') { RAISE_SYNTAX_ERROR_KNOWN_RANGE(a, b, "expected 'else' after 'if' expression") }
 //    | a='lambda' [lambda_params] b=':' &FSTRING_MIDDLE  {
 //         RAISE_SYNTAX_ERROR_KNOWN_RANGE(a, b, "f-string: lambda expressions are not allowed without parentheses") }
+// FIXME: Incomplete
 fn invalid_expression(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    pair(
+        left(disjunction, token(TT::KEYWORD, "if")),
+        left(
+            disjunction,
+            not(token(TT::KEYWORD, "else").or(tok(TT::COLON).discard())),
+        ),
+    )
+    .map(move |(a, b)| {
+        let error = Error::with_range(a.span(), b.span(), "expected 'else' after 'if' expression");
+        input.report_error(error);
+        Expression::Invalid(a.span().till(&b))
+    })
+    .or(pair(
+        left(
+            token_nodiscard(TT::KEYWORD, "lambda"),
+            maybe(lambda_parameters),
+        ),
+        left(tok(TT::COLON), lookahead(tok(TT::FSTRING_MIDDLE))),
+    )
+    .map(move |(a, b)| {
+        let error = Error::with_range(
+            a.span(),
+            b.span(),
+            "f-string: lambda expressions are not allowed without parentheses",
+        );
+        input.report_error(error);
+        Expression::Invalid(a.span().till(&b))
+    }))
+    .parse(input)
 }
 
 // invalid_named_expression(memo):
@@ -3459,7 +3750,47 @@ fn invalid_expression(input: ParserInput) -> ParseResult<Expression> {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "cannot assign to %s here. Maybe you meant '==' instead of '='?",
 //                                           _PyPegen_get_expr_name(a)) }
 fn invalid_named_expression(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    left(left(expression, tok(TT::COLONEQUAL)), expression)
+        .map(move |t| {
+            let error = Error::starting_from(t.span(), "cannot use assignment expressions here");
+            input.report_error(error);
+            Expression::Invalid(t.span())
+        })
+        .or(pair(
+            left(name, tok(TT::COLONEQUAL)),
+            left(bitwise_or, not(tok(TT::EQUAL).or(tok(TT::COLONEQUAL)))),
+        )
+        .map(move |(s, t)| {
+            let error = Error::with_range(
+                s.span(),
+                t.span(),
+                "invalid syntax. Maybe you meant '==' or ':=' instead of '='?",
+            );
+            input.report_error(error);
+            Expression::Invalid(s.span().till(&t))
+        }))
+        .or(left(
+            right(
+                not(list
+                    .or(tuple)
+                    .or(genexp)
+                    .or(token_nodiscard(TT::KEYWORD, "True").map(|t| Expression::True(t.span)))
+                    .or(token_nodiscard(TT::KEYWORD, "None").map(|t| Expression::None(t.span)))
+                    .or(token_nodiscard(TT::KEYWORD, "False").map(|t| Expression::False(t.span)))),
+                pair(bitwise_or, tok(TT::EQUAL)),
+            ),
+            left(bitwise_or, not(tok(TT::EQUAL).or(tok(TT::COLONEQUAL)))),
+        )
+        .map(move |(s, t)| {
+            let error = Error::with_range(
+                s.span(),
+                t.span(),
+                "cannot assign here. Maybe you meant '==' instead of '='?",
+            );
+            input.report_error(error);
+            Expression::Invalid(s.span().till(&t))
+        }))
+        .parse(input)
 }
 
 // invalid_assignment:
@@ -3483,7 +3814,67 @@ fn invalid_named_expression(input: ParserInput) -> ParseResult<Expression> {
 //             _PyPegen_get_expr_name(a)
 //         )}
 fn invalid_assignment(input: ParserInput) -> ParseResult<Statement> {
-    todo!()
+    left(invalid_ann_assign_target, pair(tok(TT::COLON), expression))
+        .map(move |a| {
+            let error = Error::with_underline(a.span(), "only single targets can be annotated");
+            input.report_error(error);
+            Statement::Invalid
+        })
+        .or(left(
+            star_named_expression,
+            pair(
+                pair(tok(TT::COMMA), zero_or_more(star_named_expressions)),
+                pair(tok(TT::COLON), expression),
+            ),
+        )
+        .map(move |a| {
+            let error =
+                Error::with_underline(a.span(), "only single target (not tuple) can be annotated");
+            input.report_error(error);
+            Statement::Invalid
+        }))
+        .or(
+            left(expression, pair(tok(TT::COLON), expression)).map(move |a| {
+                let error = Error::with_underline(a.span(), "illegal target for annotation");
+                input.report_error(error);
+                Statement::Invalid
+            }),
+        )
+        .or(right(
+            zero_or_more(pair(star_targets, tok(TT::EQUAL))),
+            left(star_expressions, tok(TT::EQUAL)),
+        )
+        .map(move |a| {
+            let error = Error::with_underline(a.span(), "invalid target"); // FIXME: Message
+            input.report_error(error);
+            Statement::Invalid
+        }))
+        .or(right(
+            zero_or_more(pair(star_targets, tok(TT::EQUAL))),
+            left(yield_expr, tok(TT::EQUAL)),
+        )
+        .map(move |a| {
+            let error =
+                Error::with_underline(a.span(), "assignment to yield expression not possible");
+            input.report_error(error);
+            Statement::Invalid
+        }))
+        .or(left(
+            star_expressions,
+            pair(
+                augassign,
+                yield_expr.discard().or(star_expressions.discard()),
+            ),
+        )
+        .map(move |a| {
+            let error = Error::with_underline(
+                a.span(),
+                "this is an illegal expression for augmented assignment",
+            );
+            input.report_error(error);
+            Statement::Invalid
+        }))
+        .parse(input)
 }
 
 // invalid_ann_assign_target[expr_ty]:
@@ -3491,14 +3882,28 @@ fn invalid_assignment(input: ParserInput) -> ParseResult<Statement> {
 //     | tuple
 //     | '(' a=invalid_ann_assign_target ')' { a }
 fn invalid_ann_assign_target(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    list.or(tuple)
+        .or(left(
+            right(tok(TT::LPAR), invalid_ann_assign_target),
+            tok(TT::RPAR),
+        ))
+        .parse(input)
 }
 
 // invalid_del_stmt:
 //     | 'del' a=star_expressions {
 //         RAISE_SYNTAX_ERROR_INVALID_TARGET(DEL_TARGETS, a) }
 fn invalid_del_stmt(input: ParserInput) -> ParseResult<Statement> {
-    todo!()
+    right(token(TT::KEYWORD, "del"), star_expressions)
+        .map(move |a| {
+            let error = Error::with_underline(
+                a.span(),
+                "invalid del target", // FIXME: Message
+            );
+            input.report_error(error);
+            Statement::Invalid
+        })
+        .parse(input)
 }
 
 // invalid_block:
@@ -3522,14 +3927,70 @@ fn invalid_block(input: ParserInput) -> ParseResult<Vec<Statement>> {
 //     | ('[' | '{') a=star_named_expression b=',' for_if_clauses {
 //         RAISE_SYNTAX_ERROR_KNOWN_RANGE(a, b, "did you forget parentheses around the comprehension target?") }
 fn invalid_comprehension(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    left(
+        right(
+            tok(TT::LSQB).or(tok(TT::LPAR)).or(tok(TT::LBRACE)),
+            starred_expression,
+        ),
+        for_if_clauses,
+    )
+    .map(move |a| {
+        let error = Error::starting_from(
+            a.span(),
+            "iterable unpacking cannot be used in comprehension",
+        );
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    })
+    .or(pair(
+        right(tok(TT::LSQB).or(tok(TT::LBRACE)), star_named_expression),
+        left(star_named_expressions, for_if_clauses),
+    )
+    .map(move |(a, b)| {
+        let error = Error::with_range(
+            a.span(),
+            b.span(),
+            "did you forget parentheses around the comprehension target?",
+        );
+        input.report_error(error);
+        Expression::Invalid(a.span().till(&b))
+    }))
+    .or(pair(
+        right(tok(TT::LSQB).or(tok(TT::LBRACE)), star_named_expression),
+        left(tok(TT::COMMA), for_if_clauses),
+    )
+    .map(move |(a, b)| {
+        let error = Error::with_range(
+            a.span(),
+            b.span(),
+            "did you forget parentheses around the comprehension target?",
+        );
+        input.report_error(error);
+        Expression::Invalid(a.span().till(&b))
+    }))
+    .parse(input)
 }
 
 // invalid_dict_comprehension:
 //     | '{' a='**' bitwise_or for_if_clauses '}' {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "dict unpacking cannot be used in dict comprehension") }
 fn invalid_dict_comprehension(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    left(
+        right(
+            tok(TT::LBRACE),
+            right(tok(TT::DOUBLESTAR), left(bitwise_or, for_if_clauses)),
+        ),
+        tok(TT::RBRACE),
+    )
+    .map(move |a| {
+        let error = Error::with_underline(
+            a.span(),
+            "dict unpacking cannot be used in dict comprehension",
+        );
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    })
+    .parse(input)
 }
 
 // invalid_parameters:
@@ -3545,14 +4006,101 @@ fn invalid_dict_comprehension(input: ParserInput) -> ParseResult<Expression> {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "/ must be ahead of *") }
 //     | param_maybe_default+ '/' a='*' {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "expected comma between / and *") }
-fn invalid_parameters(input: ParserInput) -> ParseResult<Vec<Parameter>> {
-    todo!()
+fn invalid_parameters(input: ParserInput) -> ParseResult<Expression> {
+    left(tok(TT::SLASH), tok(TT::COMMA))
+        .map(move |a| {
+            let error = Error::with_underline(a.span(), "at least one argument must precede /");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        })
+        .or(right(
+            pair(
+                slash_no_default.or(slash_with_default),
+                zero_or_more(param_maybe_default),
+            ),
+            tok(TT::SLASH),
+        )
+        .map(move |a| {
+            let error = Error::with_underline(a.span(), "/ may appear only once");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .or(right(
+            pair(
+                pair(maybe(slash_no_default), zero_or_more(param_no_default)),
+                slash_with_default
+                    .discard()
+                    .or(one_or_more(param_with_default).discard()),
+            ),
+            param_no_default,
+        )
+        .map(move |a| {
+            let error = Error::with_underline(
+                a.span(),
+                "parameter without a default follows parameter with a default",
+            );
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .or(right(
+            zero_or_more(param_no_default),
+            pair(
+                tok(TT::LPAR),
+                right(
+                    pair(one_or_more(param_no_default), maybe(tok(TT::COMMA))),
+                    tok(TT::RPAR),
+                ),
+            ),
+        )
+        .map(move |(a, b)| {
+            let error = Error::with_range(
+                a.span(),
+                b.span(),
+                "Function parameters cannot be parenthesized",
+            );
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .or(right(
+            maybe(slash_no_default.or(slash_with_default)),
+            right(
+                zero_or_more(param_maybe_default),
+                right(
+                    tok(TT::STAR),
+                    right(
+                        tok(TT::COMMA).discard().or(param_no_default.discard()),
+                        right(zero_or_more(param_maybe_default), tok(TT::SLASH)),
+                    ),
+                ),
+            ),
+        )
+        .map(move |a| {
+            let error = Error::with_underline(a.span(), "/ must be ahead of *");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .or(right(
+            one_or_more(param_maybe_default),
+            right(tok(TT::SLASH), tok(TT::STAR)),
+        )
+        .map(move |a| {
+            let error = Error::with_underline(a.span(), "expected comma between / and *");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .parse(input)
 }
 
 // invalid_default:
 //     | a='=' &(')'|',') { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "expected default value expression") }
 fn invalid_default(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    left(tok(TT::EQUAL), lookahead(tok(TT::RPAR).or(tok(TT::COMMA))))
+        .map(move |a| {
+            let error = Error::with_underline(a.span(), "expected default value expression");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        })
+        .parse(input)
 }
 
 // invalid_star_etc:
@@ -3562,20 +4110,63 @@ fn invalid_default(input: ParserInput) -> ParseResult<Expression> {
 //     | '*' (param_no_default | ',') param_maybe_default* a='*' (param_no_default | ',') {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "* argument may appear only once") }
 fn invalid_star_etc(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    left(
+        tok(TT::STAR),
+        tok(TT::RPAR)
+            .discard()
+            .or(pair(tok(TT::COMMA), tok(TT::RPAR).or(tok(TT::DOUBLESTAR))).discard()),
+    )
+    .map(move |a| {
+        let error = Error::with_underline(a.span(), "expected default value expression");
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    })
+    .or(
+        left(tok(TT::STAR), pair(tok(TT::COMMA), tok(TT::TYPE_COMMENT))).map(move |a| {
+            let error = Error::with_underline(a.span(), "bare * has associated type comment");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }),
+    )
+    .or(
+        right(tok(TT::STAR), right(param, tok(TT::EQUAL))).map(move |a| {
+            let error = Error::with_underline(
+                a.span(),
+                "var-positional argument cannot have default value",
+            );
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }),
+    )
+    .or(right(
+        tok(TT::STAR),
+        right(
+            pair(
+                param_no_default.discard().or(tok(TT::COMMA).discard()),
+                zero_or_more(param_maybe_default),
+            ),
+            left(
+                tok(TT::STAR),
+                param_no_default.discard().or(tok(TT::COMMA).discard()),
+            ),
+        ),
+    )
+    .map(move |a| {
+        let error = Error::with_underline(a.span(), "* argument may appear only once");
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    }))
+    .parse(input)
 }
 
 // invalid_kwds:
 //     | '**' param a='=' { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "var-keyword argument cannot have default value") }
 //     | '**' param ',' a=param { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "arguments cannot follow var-keyword argument") }
 //     | '**' param ',' a[Token*]=('*'|'**'|'/') { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "arguments cannot follow var-keyword argument") }
-fn invalid_kwds(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_kwds(input: ParserInput) -> ParseResult<Parameter> {
     todo!()
 }
 
-// invalid_parameters_helper: # This is only there to avoid type errors
-//     | a=slash_with_default { _PyPegen_singleton_seq(p, a) }
-//     | param_with_default+
 // invalid_lambda_parameters:
 //     | a="/" ',' {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "at least one argument must precede /") }
@@ -3589,7 +4180,7 @@ fn invalid_kwds(input: ParserInput) -> ParseResult<Expression> {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "/ must be ahead of *") }
 //     | lambda_param_maybe_default+ '/' a='*' {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "expected comma between / and *") }
-fn invalid_lambda_parameters(input: ParserInput) -> ParseResult<Vec<Parameter>> {
+fn invalid_lambda_parameters(input: ParserInput) -> ParseResult<Expression> {
     todo!()
 }
 
@@ -3601,7 +4192,7 @@ fn invalid_lambda_parameters(input: ParserInput) -> ParseResult<Vec<Parameter>> 
 //     | '*' lambda_param a='=' { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "var-positional argument cannot have default value") }
 //     | '*' (lambda_param_no_default | ',') lambda_param_maybe_default* a='*' (lambda_param_no_default | ',') {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "* argument may appear only once") }
-fn invalid_lambda_star_etc(input: ParserInput) -> ParseResult<Vec<Parameter>> {
+fn invalid_lambda_star_etc(input: ParserInput) -> ParseResult<Expression> {
     todo!()
 }
 
@@ -3609,37 +4200,69 @@ fn invalid_lambda_star_etc(input: ParserInput) -> ParseResult<Vec<Parameter>> {
 //     | '**' lambda_param a='=' { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "var-keyword argument cannot have default value") }
 //     | '**' lambda_param ',' a=lambda_param { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "arguments cannot follow var-keyword argument") }
 //     | '**' lambda_param ',' a[Token*]=('*'|'**'|'/') { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "arguments cannot follow var-keyword argument") }
-fn invalid_lambda_kwds(input: ParserInput) -> ParseResult<Parameter> {
-    todo!()
+fn invalid_lambda_kwds(input: ParserInput) -> ParseResult<Expression> {
+    right(pair(tok(TT::DOUBLESTAR), lambda_param), tok(TT::EQUAL))
+        .map(move |a| {
+            let error =
+                Error::with_underline(a.span(), "var-keyword argument cannot have default value");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        })
+        .parse(input)
 }
 
 // invalid_double_type_comments:
 //     | TYPE_COMMENT NEWLINE TYPE_COMMENT NEWLINE INDENT {
 //         RAISE_SYNTAX_ERROR("Cannot have two type comments on def") }
 fn invalid_double_type_comments(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    left(
+        left(
+            left(tok(TT::TYPE_COMMENT), tok(TT::NEWLINE)),
+            pair(tok(TT::TYPE_COMMENT), tok(TT::NEWLINE)),
+        ),
+        tok(TT::INDENT),
+    )
+    .map(move |a| {
+        let error = Error::starting_from(a.span(), "Cannot have two type comments on def");
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    })
+    .parse(input)
 }
 
 // invalid_with_item:
 //     | expression 'as' a=expression &(',' | ')' | ':') {
 //         RAISE_SYNTAX_ERROR_INVALID_TARGET(STAR_TARGETS, a) }
+// FIXME: message
 fn invalid_with_item(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    right(
+        pair(expression, token(TT::KEYWORD, "as")),
+        left(
+            expression,
+            lookahead(tok(TT::COMMA).or(tok(TT::RPAR)).or(tok(TT::COLON))),
+        ),
+    )
+    .map(move |a| {
+        let error = Error::with_underline(a.span(), "Invalid target");
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    })
+    .parse(input)
 }
 
 // invalid_for_target:
 //     | 'async'? 'for' a=star_expressions {
 //         RAISE_SYNTAX_ERROR_INVALID_TARGET(FOR_TARGETS, a) }
 fn invalid_for_target(input: ParserInput) -> ParseResult<Statement> {
-    left(
-        right(
+    right(
+        pair(
             maybe(token(TT::KEYWORD, "async")),
             token_nodiscard(TT::KEYWORD, "for"),
         ),
         star_expressions,
     )
     .map(move |t| {
-        let error = Error::starting_from(t.span, "invalid for-targets"); // FIXME: appropriate message, precise location
+        let error = Error::starting_from(t.span(), "invalid for-targets"); // FIXME: appropriate message
         input.report_error(error);
         Statement::Invalid
     })
@@ -3652,21 +4275,64 @@ fn invalid_for_target(input: ParserInput) -> ParseResult<Statement> {
 //     | '(' a='**' expression ')' {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "cannot use double starred expression here") }
 fn invalid_group(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    left(right(tok(TT::LPAR), starred_expression), tok(TT::RPAR))
+        .map(move |a| {
+            let error = Error::with_underline(a.span(), "cannot use starred expression here");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        })
+        .or(left(
+            right(
+                tok(TT::LPAR),
+                right(tok(TT::DOUBLESTAR), starred_expression),
+            ),
+            tok(TT::RPAR),
+        )
+        .map(move |a| {
+            let error =
+                Error::with_underline(a.span(), "cannot use double starred expression here");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .parse(input)
 }
 
 // invalid_import:
 //     | a='import' ','.dotted_name+ 'from' dotted_name {
 //         RAISE_SYNTAX_ERROR_STARTING_FROM(a, "Did you mean to use 'from ... import ...' instead?") }
 fn invalid_import(input: ParserInput) -> ParseResult<Statement> {
-    todo!()
+    left(
+        token_nodiscard(TT::KEYWORD, "import"),
+        pair(
+            pair(sep_by(dotted_name, TT::COMMA), token(TT::KEYWORD, "from")),
+            dotted_name,
+        ),
+    )
+    .map(move |a| {
+        let error = Error::starting_from(
+            a.span(),
+            "Did you mean to use 'from ... import ...' instead?",
+        );
+        input.report_error(error);
+        Statement::Invalid
+    })
+    .parse(input)
 }
 
 // invalid_import_from_targets:
 //     | import_from_as_names ',' NEWLINE {
 //         RAISE_SYNTAX_ERROR("trailing comma not allowed without surrounding parentheses") }
-fn invalid_import_from_targets(input: ParserInput) -> ParseResult<Vec<ImportItem>> {
-    todo!()
+fn invalid_import_from_targets(input: ParserInput) -> ParseResult<Expression> {
+    left(import_from_as_names, pair(tok(TT::COMMA), tok(TT::NEWLINE)))
+        .map(move |a| {
+            let error = Error::with_underline(
+                a.span(),
+                "trailing comma not allowed without surrounding parentheses",
+            );
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        })
+        .parse(input)
 }
 
 // invalid_compound_stmt:
@@ -3788,7 +4454,83 @@ fn invalid_with_stmt_indent(input: ParserInput) -> ParseResult<Statement> {
 //     | 'try' ':' block* except_star_block+ a='except' [expression ['as' NAME]] ':' {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "cannot have both 'except' and 'except*' on the same 'try'") }
 fn invalid_try_stmt(input: ParserInput) -> ParseResult<Statement> {
-    todo!()
+    left(
+        left(token_nodiscard(TT::KEYWORD, "try"), tok(TT::COLON)),
+        pair(tok(TT::NEWLINE), not(tok(TT::INDENT))),
+    )
+    .map(move |a| {
+        let error = Error::with_line(
+            a.span(),
+            "expected an indented block after 'try' statement on line",
+        );
+        input.report_error(error);
+        Statement::Invalid
+    })
+    .or(left(
+        left(token_nodiscard(TT::KEYWORD, "try"), tok(TT::COLON)),
+        pair(
+            block,
+            not(token(TT::KEYWORD, "except").or(token(TT::KEYWORD, "finally"))),
+        ),
+    )
+    .map(move |a| {
+        let error = Error::with_line(
+            a.span(),
+            "expected 'except' or 'finally' block in try statement beginning on line",
+        );
+        input.report_error(error);
+        Statement::Invalid
+    }))
+    .or(right(
+        left(token(TT::KEYWORD, "try"), tok(TT::COLON)),
+        right(
+            pair(zero_or_more(block), one_or_more(except_block)),
+            left(
+                pair(token_nodiscard(TT::KEYWORD, "except"), tok(TT::STAR)),
+                pair(
+                    maybe(pair(
+                        expression,
+                        maybe(pair(token(TT::KEYWORD, "as"), name)),
+                    )),
+                    tok(TT::COLON),
+                ),
+            ),
+        )
+        .map(move |(a, b)| {
+            let error = Error::with_range(
+                a.span(),
+                b.span(),
+                "cannot have both 'except' and 'except*' on the same 'try'",
+            );
+            input.report_error(error);
+            Statement::Invalid
+        }),
+    ))
+    .or(right(
+        right(token(TT::KEYWORD, "try"), tok(TT::COLON)),
+        right(
+            right(zero_or_more(block), one_or_more(except_star_block)),
+            left(
+                token_nodiscard(TT::KEYWORD, "except"),
+                pair(
+                    maybe(pair(
+                        expression,
+                        maybe(pair(token(TT::KEYWORD, "as"), name)),
+                    )),
+                    tok(TT::COLON),
+                ),
+            ),
+        ),
+    )
+    .map(move |a| {
+        let error = Error::starting_from(
+            a.span(),
+            "cannot have both 'except' and 'except*' on the same 'try'",
+        );
+        input.report_error(error);
+        Statement::Invalid
+    }))
+    .parse(input)
 }
 
 // invalid_except_stmt:
@@ -3798,14 +4540,79 @@ fn invalid_try_stmt(input: ParserInput) -> ParseResult<Statement> {
 //     | a='except' NEWLINE { RAISE_SYNTAX_ERROR("expected ':'") }
 //     | a='except' '*' (NEWLINE | ':') { RAISE_SYNTAX_ERROR("expected one or more exception types") }
 fn invalid_except_stmt(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    left(
+        right(
+            pair(token(TT::KEYWORD, "except"), maybe(tok(TT::STAR))),
+            expression,
+        ),
+        pair(
+            tok(TT::COMMA),
+            pair(
+                expressions,
+                pair(maybe(pair(token(TT::KEYWORD, "as"), name)), tok(TT::COLON)),
+            ),
+        ),
+    )
+    .map(move |a| {
+        let error =
+            Error::starting_from(a.span(), "multiple exception types must be parenthesized");
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    })
+    .or(left(
+        left(token_nodiscard(TT::KEYWORD, "except"), maybe(tok(TT::STAR))),
+        pair(
+            expression,
+            pair(
+                maybe(pair(token(TT::KEYWORD, "as"), name)),
+                tok(TT::NEWLINE),
+            ),
+        ),
+    )
+    .map(move |a| {
+        let error = Error::starting_from(a.span(), "expected ':'");
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    }))
+    .or(
+        left(token_nodiscard(TT::KEYWORD, "except"), tok(TT::NEWLINE)).map(move |a| {
+            let error = Error::starting_from(a.span(), "expected ':'");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }),
+    )
+    .or(left(
+        token_nodiscard(TT::KEYWORD, "except"),
+        pair(tok(TT::STAR), tok(TT::NEWLINE).or(tok(TT::STAR))),
+    )
+    .map(move |a| {
+        let error = Error::starting_from(a.span(), "expected one or more exception types");
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    }))
+    .parse(input)
 }
 
 // invalid_finally_stmt:
 //     | a='finally' ':' NEWLINE !INDENT {
 //         RAISE_INDENTATION_ERROR("expected an indented block after 'finally' statement on line %d", a->lineno) }
 fn invalid_finally_stmt(input: ParserInput) -> ParseResult<Vec<Statement>> {
-    todo!()
+    left(
+        left(
+            left(token_nodiscard(TT::KEYWORD, "finally"), tok(TT::COLON)),
+            tok(TT::NEWLINE),
+        ),
+        not(tok(TT::INDENT)),
+    )
+    .map(move |a| {
+        let error = Error::with_line(
+            a.span(),
+            "expected an indented block after 'finally' statement on line ",
+        );
+        input.report_error(error);
+        vec![Statement::Invalid]
+    })
+    .parse(input)
 }
 
 // invalid_except_stmt_indent:
@@ -3813,14 +4620,59 @@ fn invalid_finally_stmt(input: ParserInput) -> ParseResult<Vec<Statement>> {
 //         RAISE_INDENTATION_ERROR("expected an indented block after 'except' statement on line %d", a->lineno) }
 //     | a='except' ':' NEWLINE !INDENT { RAISE_INDENTATION_ERROR("expected an indented block after 'except' statement on line %d", a->lineno) }
 fn invalid_except_stmt_indent(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    left(
+        left(
+            left(token_nodiscard(TT::KEYWORD, "except"), expression),
+            maybe(pair(token(TT::KEYWORD, "as"), name)),
+        ),
+        pair(pair(tok(TT::COLON), tok(TT::NEWLINE)), not(tok(TT::INDENT))),
+    )
+    .map(move |a| {
+        let error = Error::with_line(
+            a.span(),
+            "expected an indented block after 'except' statement on line ",
+        );
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    })
+    .or(left(
+        token_nodiscard(TT::KEYWORD, "except"),
+        pair(pair(tok(TT::COLON), tok(TT::NEWLINE)), not(tok(TT::INDENT))),
+    )
+    .map(move |a| {
+        let error = Error::with_line(
+            a.span(),
+            "expected an indented block after 'except' statement on line ",
+        );
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    }))
+    .parse(input)
 }
 
 // invalid_except_star_stmt_indent:
 //     | a='except' '*' expression ['as' NAME ] ':' NEWLINE !INDENT {
 //         RAISE_INDENTATION_ERROR("expected an indented block after 'except*' statement on line %d", a->lineno) }
 fn invalid_except_star_stmt_indent(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    left(
+        left(
+            left(
+                token_nodiscard(TT::KEYWORD, "except"),
+                pair(tok(TT::STAR), expression),
+            ),
+            maybe(pair(token(TT::KEYWORD, "as"), name)),
+        ),
+        pair(pair(tok(TT::COLON), tok(TT::NEWLINE)), not(tok(TT::INDENT))),
+    )
+    .map(move |a| {
+        let error = Error::with_line(
+            a.span(),
+            "expected an indented block after 'except' statement on line ",
+        );
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    })
+    .parse(input)
 }
 
 // invalid_match_stmt:
@@ -3828,7 +4680,22 @@ fn invalid_except_star_stmt_indent(input: ParserInput) -> ParseResult<Expression
 //     | a="match" subject=subject_expr ':' NEWLINE !INDENT {
 //         RAISE_INDENTATION_ERROR("expected an indented block after 'match' statement on line %d", a->lineno) }
 fn invalid_match_stmt(input: ParserInput) -> ParseResult<Statement> {
-    todo!()
+    left(
+        token_nodiscard(TT::SOFT_KEYWORD, "match"),
+        pair(
+            subject_expr,
+            pair(tok(TT::COLON), pair(tok(TT::NEWLINE), not(tok(TT::INDENT)))),
+        ),
+    )
+    .map(move |a| {
+        let error = Error::with_line(
+            a.span(),
+            "expected an indented block after 'match' statement on line ",
+        );
+        input.report_error(error);
+        Statement::Invalid
+    })
+    .parse(input)
 }
 
 // invalid_case_block:
@@ -3836,14 +4703,59 @@ fn invalid_match_stmt(input: ParserInput) -> ParseResult<Statement> {
 //     | a="case" patterns guard? ':' NEWLINE !INDENT {
 //         RAISE_INDENTATION_ERROR("expected an indented block after 'case' statement on line %d", a->lineno) }
 fn invalid_case_block(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    left(
+        left(
+            left(token_nodiscard(TT::SOFT_KEYWORD, "case"), patterns),
+            maybe(guard),
+        ),
+        tok(TT::NEWLINE),
+    )
+    .map(move |a| {
+        let error = Error::starting_from(a.span(), "expected ':'");
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    })
+    .or(left(
+        left(
+            left(token_nodiscard(TT::SOFT_KEYWORD, "case"), patterns),
+            maybe(guard),
+        ),
+        pair(pair(tok(TT::COLON), tok(TT::NEWLINE)), not(tok(TT::INDENT))),
+    )
+    .map(move |a| {
+        let error = Error::with_line(
+            a.span(),
+            "expected an indented block after 'case' statement on line ",
+        );
+        input.report_error(error);
+        Expression::Invalid(a.span())
+    }))
+    .parse(input)
 }
 
 // invalid_as_pattern:
 //     | or_pattern 'as' a="_" { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "cannot use '_' as a target") }
 //     | or_pattern 'as' !NAME a=expression { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "invalid pattern target") }
 fn invalid_as_pattern(input: ParserInput) -> ParseResult<Pattern> {
-    todo!()
+    right(
+        pair(or_pattern, token(TT::KEYWORD, "as")),
+        name.pred(|n| n.name.as_str() == "_"),
+    )
+    .map(move |a| {
+        let error = Error::starting_from(a.span(), "cannot use '_' as a target");
+        input.report_error(error);
+        Pattern::Invalid(a.span())
+    })
+    .or(right(
+        pair(or_pattern, token(TT::KEYWORD, "as")),
+        right(not(name), expression),
+    )
+    .map(move |a| {
+        let error = Error::starting_from(a.span(), "invalid pattern target");
+        input.report_error(error);
+        Pattern::Invalid(a.span())
+    }))
+    .parse(input)
 }
 
 // invalid_class_pattern:
@@ -3852,13 +4764,33 @@ fn invalid_as_pattern(input: ParserInput) -> ParseResult<Pattern> {
 //         PyPegen_last_item(a, pattern_ty),
 //         "positional patterns follow keyword patterns") }
 fn invalid_class_pattern(input: ParserInput) -> ParseResult<Pattern> {
-    todo!()
+    right(
+        pair(name_or_attr, tok(TT::LPAR)),
+        invalid_class_argument_pattern,
+    )
+    .map(move |a| {
+        let error = Error::with_underline(a.span(), "positional patterns follow keyword patterns");
+        input.report_error(error);
+        Pattern::Invalid(a.span())
+    })
+    .parse(input)
 }
 
 // invalid_class_argument_pattern[asdl_pattern_seq*]:
 //     | [positional_patterns ','] keyword_patterns ',' a=positional_patterns { a }
 fn invalid_class_argument_pattern(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    pair(
+        maybe(left(positional_patterns, tok(TT::COMMA))),
+        keyword_patterns,
+    )
+    .map(|(p, q)| {
+        let span = match p {
+            Some(p) if !p.is_empty() => p.first().unwrap().span().till(&q),
+            _ => q.span(),
+        };
+        Expression::Invalid(span)
+    })
+    .parse(input)
 }
 
 fn missing_block_or_colon_on_keyword_named_expr<'a>(
@@ -3866,11 +4798,11 @@ fn missing_block_or_colon_on_keyword_named_expr<'a>(
     keyword: &'static str,
 ) -> BoxedParser<'a, Statement> {
     left(
-        left(token_nodiscard(TT::KEYWORD, keyword), named_expression),
+        right(token(TT::KEYWORD, keyword), named_expression),
         tok(TT::NEWLINE),
     )
     .map(move |t| {
-        let error = Error::starting_from(t.span, "expected ':'");
+        let error = Error::starting_from(t.span(), "expected ':'");
         input.report_error(error);
         Statement::Invalid
     })
@@ -3910,7 +4842,12 @@ fn invalid_elif_stmt(
     input: ParserInput,
 ) -> ParseResult<(Vec<(Expression, Vec<Statement>)>, Option<Vec<Statement>>)> {
     missing_block_or_colon_on_keyword_named_expr(input, "elif")
-        .map(|_| (vec![(Expression::Invalid, vec![Statement::Invalid])], None))
+        .map(|s| {
+            (
+                vec![(Expression::Invalid(s.span()), vec![Statement::Invalid])],
+                None,
+            )
+        })
         .parse(input)
 }
 
@@ -3984,8 +4921,32 @@ fn invalid_for_stmt(input: ParserInput) -> ParseResult<Statement> {
 // invalid_def_raw:
 //     | ['async'] a='def' NAME [type_params] '(' [params] ')' ['->' expression] ':' NEWLINE !INDENT {
 //         RAISE_INDENTATION_ERROR("expected an indented block after function definition on line %d", a->lineno) }
-fn invalid_def_raw(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+fn invalid_def_raw(input: ParserInput) -> ParseResult<Statement> {
+    left(
+        right(
+            maybe(token(TT::KEYWORD, "async")),
+            left(token_nodiscard(TT::KEYWORD, "def"), name),
+        ),
+        pair(
+            pair(
+                maybe(type_params),
+                pair(tok(TT::LPAR), pair(maybe(params), tok(TT::RPAR))),
+            ),
+            pair(
+                maybe(pair(tok(TT::RARROW), expression)),
+                pair(pair(tok(TT::COLON), tok(TT::NEWLINE)), not(tok(TT::INDENT))),
+            ),
+        ),
+    )
+    .map(move |a| {
+        let error = Error::with_line(
+            a.span(),
+            "expected an indented block after function definition on line ",
+        );
+        input.report_error(error);
+        Statement::Invalid
+    })
+    .parse(input)
 }
 
 // invalid_class_def_raw:
@@ -4037,7 +4998,33 @@ fn invalid_class_def_raw(input: ParserInput) -> ParseResult<Statement> {
 //     | expression ':' a='*' bitwise_or { RAISE_SYNTAX_ERROR_STARTING_FROM(a, "cannot use a starred expression in a dictionary value") }
 //     | expression a=':' &('}'|',') { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "expression expected after dictionary key and ':'") }
 fn invalid_double_starred_kvpairs(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    right(
+        sep_by(double_starred_kvpair, TT::COMMA),
+        right(tok(TT::COMMA), invalid_kvpair),
+    )
+    .or(right(
+        pair(expression, tok(TT::COLON)),
+        left(tok(TT::STAR), bitwise_or),
+    )
+    .map(move |a| {
+        let error = Error::starting_from(
+            a.span(),
+            "cannot use a starred expression in a dictionary value",
+        );
+        input.report_error(error);
+        Expression::Invalid(a.span)
+    }))
+    .or(left(
+        right(expression, tok(TT::COLON)),
+        lookahead(tok(TT::RBRACE).or(tok(TT::COMMA))),
+    )
+    .map(move |a| {
+        let error =
+            Error::starting_from(a.span(), "expression expected after dictionary key and ':'");
+        input.report_error(error);
+        Expression::Invalid(a.span)
+    }))
+    .parse(input)
 }
 
 // invalid_kvpair:
@@ -4046,13 +5033,54 @@ fn invalid_double_starred_kvpairs(input: ParserInput) -> ParseResult<Expression>
 //     | expression ':' a='*' bitwise_or { RAISE_SYNTAX_ERROR_STARTING_FROM(a, "cannot use a starred expression in a dictionary value") }
 //     | expression a=':' &('}'|',') {RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "expression expected after dictionary key and ':'") }
 fn invalid_kvpair(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    left(expression, not(tok(TT::COLON)))
+        .map(move |a| {
+            let error = Error::starting_from(a.span(), "':' expected after dictionary key");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        })
+        .or(left(
+            right(expression, tok(TT::COLON)),
+            pair(tok(TT::STAR), bitwise_or),
+        )
+        .map(move |a| {
+            let error = Error::starting_from(
+                a.span(),
+                "cannot use a starred expression in a dictionary value",
+            );
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .or(left(
+            right(expression, tok(TT::COLON)),
+            lookahead(tok(TT::RBRACE).or(tok(TT::COMMA))),
+        )
+        .map(move |a| {
+            let error =
+                Error::starting_from(a.span(), "expression expected after dictionary key and ':'");
+            input.report_error(error);
+            Expression::Invalid(a.span)
+        }))
+        .parse(input)
 }
 
 // invalid_starred_expression:
 //     | a='*' expression '=' b=expression { RAISE_SYNTAX_ERROR_KNOWN_RANGE(a, b, "cannot assign to iterable argument unpacking") }
 fn invalid_starred_expression(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    pair(
+        left(tok(TT::STAR), left(expression, tok(TT::EQUAL))),
+        expression,
+    )
+    .map(move |(a, b)| {
+        let error = Error::with_range(
+            a.span(),
+            b.span(),
+            "cannot assign to iterable argument unpacking",
+        );
+        input.report_error(error);
+        Expression::Invalid(a.span().till(&b))
+    })
+    .parse(input)
 }
 
 // invalid_replacement_field:
@@ -4072,13 +5100,143 @@ fn invalid_starred_expression(input: ParserInput) -> ParseResult<Expression> {
 //         PyErr_Occurred() ? NULL : RAISE_SYNTAX_ERROR_ON_NEXT_TOKEN("f-string: expecting '}', or format specs") }
 //     | '{' (yield_expr | star_expressions) '='? ['!' NAME] !'}' {
 //         PyErr_Occurred() ? NULL : RAISE_SYNTAX_ERROR_ON_NEXT_TOKEN("f-string: expecting '}'") }
+// FIXME: Raise error on next token
 fn invalid_replacement_field(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    right(tok(TT::LBRACE), tok(TT::EQUAL))
+        .map(move |a| {
+            let error =
+                Error::with_underline(a.span(), "f-string: valid expression required before '='");
+            input.report_error(error);
+            Expression::Invalid(a.span)
+        })
+        .or(right(tok(TT::LBRACE), tok(TT::EXCLAMATION)).map(move |a| {
+            let error =
+                Error::with_underline(a.span(), "f-string: valid expression required before '!'");
+            input.report_error(error);
+            Expression::Invalid(a.span)
+        }))
+        .or(right(tok(TT::LBRACE), tok(TT::COLON)).map(move |a| {
+            let error =
+                Error::with_underline(a.span(), "f-string: valid expression required before ':'");
+            input.report_error(error);
+            Expression::Invalid(a.span)
+        }))
+        .or(right(tok(TT::LBRACE), tok(TT::RBRACE)).map(move |a| {
+            let error =
+                Error::with_underline(a.span(), "f-string: valid expression required before '}'");
+            input.report_error(error);
+            Expression::Invalid(a.span)
+        }))
+        .or(left(
+            tok(TT::LBRACE),
+            not(yield_expr.discard().or(star_expressions.discard())),
+        )
+        .map(move |a| {
+            let error =
+                Error::starting_from(a.span(), "f-string: expecting a valid expression after '{'");
+            input.report_error(error);
+            Expression::Invalid(a.span)
+        }))
+        .or(left(
+            right(
+                tok(TT::LBRACE),
+                yield_expr.map(|e| vec![e]).or(star_expressions),
+            ),
+            not(tok(TT::EQUAL)
+                .or(tok(TT::EXCLAMATION))
+                .or(tok(TT::COLON))
+                .or(tok(TT::RBRACE))),
+        )
+        .map(move |a| {
+            let error =
+                Error::starting_from(a.span(), "f-string: expecting '=', or '!', or ':', or '}'");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .or(right(
+            pair(
+                tok(TT::LBRACE),
+                yield_expr.map(|e| vec![e]).or(star_expressions),
+            ),
+            right(maybe(tok(TT::EQUAL)), invalid_conversion_character),
+        ))
+        .or(left(
+            right(
+                tok(TT::LBRACE),
+                yield_expr.map(|e| vec![e]).or(star_expressions),
+            ),
+            pair(
+                maybe(tok(TT::EQUAL)),
+                pair(
+                    maybe(pair(tok(TT::EXCLAMATION), name)),
+                    not(tok(TT::COLON).or(tok(TT::RBRACE))),
+                ),
+            ),
+        )
+        .map(move |a| {
+            let error = Error::starting_from(a.span(), "f-string: expecting ':', or '}'");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .or(left(
+            right(
+                tok(TT::LBRACE),
+                yield_expr.map(|e| vec![e]).or(star_expressions),
+            ),
+            pair(
+                maybe(tok(TT::EQUAL)),
+                pair(
+                    maybe(pair(tok(TT::EXCLAMATION), name)),
+                    pair(
+                        pair(tok(TT::COLON), zero_or_more(fstring_format_spec)),
+                        not(tok(TT::RBRACE)),
+                    ),
+                ),
+            ),
+        )
+        .map(move |a| {
+            let error = Error::starting_from(a.span(), "f-string: expecting '}', or format specs");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .or(left(
+            right(
+                tok(TT::LBRACE),
+                yield_expr.map(|e| vec![e]).or(star_expressions),
+            ),
+            pair(
+                maybe(tok(TT::EQUAL)),
+                pair(
+                    maybe(pair(tok(TT::EXCLAMATION), name)),
+                    not(tok(TT::RBRACE)),
+                ),
+            ),
+        )
+        .map(move |a| {
+            let error = Error::starting_from(a.span(), "f-string: expecting '}'");
+            input.report_error(error);
+            Expression::Invalid(a.span())
+        }))
+        .parse(input)
 }
 
 // invalid_conversion_character:
 //     | '!' &(':' | '}') { RAISE_SYNTAX_ERROR_ON_NEXT_TOKEN("f-string: missing conversion character") }
 //     | '!' !NAME { RAISE_SYNTAX_ERROR_ON_NEXT_TOKEN("f-string: invalid conversion character") }
 fn invalid_conversion_character(input: ParserInput) -> ParseResult<Expression> {
-    todo!()
+    left(
+        tok(TT::EXCLAMATION),
+        lookahead(tok(TT::COLON).or(tok(TT::RBRACE))),
+    )
+    .map(move |a| {
+        let error = Error::starting_from(a.span(), "f-string: missing conversion character");
+        input.report_error(error);
+        Expression::Invalid(a.span)
+    })
+    .or(left(tok(TT::EXCLAMATION), not(name)).map(move |a| {
+        let error = Error::starting_from(a.span(), "f-string: invalid conversion character");
+        input.report_error(error);
+        Expression::Invalid(a.span)
+    }))
+    .parse(input)
 }

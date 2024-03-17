@@ -13,6 +13,9 @@ impl Error {
     pub fn with_line(span: Span, msg: &str) -> Self {
         Self(span, msg.to_string())
     }
+    pub fn with_underline(span: Span, msg: &str) -> Self {
+        Self(span, msg.to_string())
+    }
     pub fn with_range(start_span: Span, end_span: Span, msg: &str) -> Self {
         let span = start_span.till(&end_span);
         Self(span, msg.to_string())

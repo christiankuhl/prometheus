@@ -275,7 +275,11 @@ impl Locatable for Expression {
             Self::Ellipsis(s) => s.clone(),
             Self::True(s) => s.clone(),
             Self::False(s) => s.clone(),
-            Self::Invalid => unreachable!(),
+            Self::FString(_, s) => s.clone(),
+            Self::ImportItems(_, s) => s.clone(),
+            Self::Parameters(_, s) => s.clone(),
+            Self::Arguments(_, s) => s.clone(),
+            Self::Invalid(s) => s.clone(),
         }
     }
 }
@@ -358,6 +362,7 @@ impl Locatable for Pattern {
             Self::Class(expr, ps) => expr.span().till_block(ps),
             Self::Disjunction(ps) => ps.span(),
             Self::KeyValue(expr, pat) => expr.span().till(pat.as_ref()),
+            Self::Invalid(s) => s.clone(),
         }
     }
 }
@@ -371,5 +376,11 @@ impl Locatable for Module {
 impl Locatable for FunctionDeclaration {
     fn span(&self) -> Span {
         self.name.span.till_block(&self.code)
+    }
+}
+
+impl Locatable for Parameter {
+    fn span(&self) -> Span {
+        self.name.span.clone()
     }
 }

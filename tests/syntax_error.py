@@ -1,2 +1,3 @@
-if x == 5
-    return
+@decorator("Foo")
+class Bar
+    missing_colon
