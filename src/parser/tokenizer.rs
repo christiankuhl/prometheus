@@ -1,7 +1,7 @@
 use super::locations::{Span, Location};
 use const_format::concatcp;
 use once_cell::sync::Lazy;
-use regex::{Match, Regex};
+use regex::{Regex, Captures};
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
@@ -242,7 +242,7 @@ const S_WHOLE_FLOATNUMBER: &str = concatcp!("^", S_FLOATNUMBER, "$");
 const S_WHOLE_IMAGNUMBER: &str = concatcp!("^", S_IMAGNUMBER, "$");
 const S_NUMBER: &str = concatcp!(r"^", group!(S_IMAGNUMBER, S_FLOATNUMBER, S_INTNUMBER));
 const S_KEYWORDS: &str = r"^(\bFalse\b|\bNone\b|\bTrue\b|\band\b|\bas\b|\bassert\b|\basync\b|\bawait\b|\bbreak\b|\bclass\b|\bcontinue\b|\bdef\b|\bdel\b|\belif\b|\belse\b|\bexcept\b|\bfinally\b|\bfor\b|\bfrom\b|\bglobal\b|\bif\b|\bimport\b|\bin\b|\bis\b|\blambda\b|\bnonlocal\b|\bnot\b|\bor\b|\bpass\b|\braise\b|\breturn\b|\btry\b|\bwhile\b|\bwith\b|\byield\b)";
-const S_STRING_START: &str = r#"^("{3}|'{3}|"{1}|'{1})"#;
+const S_STRING_START: &str = r#"^(?<mode>[fru]{0,3})(?<delimiter>"{3}|'{3}|"{1}|'{1})"#;
 
 static WHITESPACE: Lazy<Regex> =
     Lazy::new(|| Regex::new(S_WHITESPACE).expect("Error compiling regex."));
@@ -275,9 +275,11 @@ enum StringDelimiter {
 }
 
 impl StringDelimiter {
-    fn from_match(m: Match) -> Self {
-        let double = m.as_str().chars().nth(0) == Some('\"');
-        if m.end() == 1 {
+    fn from_match(m: Captures) -> Self {
+        let mode = &m["mode"];
+        let delim = &m["delimiter"];
+        let double = delim.chars().nth(0) == Some('\"');
+        if delim.len() == 1 {
             if double {
                 Self::DoubleQuotes
             } else {
@@ -423,6 +425,21 @@ impl Tokenizer {
                     }
                 }
 
+                if let Some(m) = STRING_START.captures(&line[self.start..]) {
+                    let t = m.get(0).unwrap();
+                    self.string_start = StringDelimiter::from_match(m);
+                    self.current_string = "".to_string();
+                    self.in_string = true;
+                    self.current.typ = TokenType::STRING;
+                    self.current.span.start(Location {
+                        line: lineno,
+                        column: self.start,
+                    });
+                    self.start += t.end();
+                    self.end += t.end();
+                    continue;
+                }
+
                 if self.find_by_regex(&KEYWORDS, TokenType::KEYWORD, line, lineno) {
                     continue;
                 }
@@ -453,19 +470,6 @@ impl Tokenizer {
                         }
                         break;
                     }
-                }
-                if let Some(m) = STRING_START.find(&line[self.start..]) {
-                    self.string_start = StringDelimiter::from_match(m);
-                    self.current_string = "".to_string();
-                    self.in_string = true;
-                    self.current.typ = TokenType::STRING;
-                    self.current.span.start(Location {
-                        line: lineno,
-                        column: self.start,
-                    });
-                    self.start += m.end();
-                    self.end += m.end();
-                    continue;
                 }
             } else {
                 let mut quotes = "".to_string();
