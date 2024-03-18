@@ -59,15 +59,21 @@ use super::ast::*;
 use super::combinators::*;
 use super::error::Error;
 use super::locations::Locatable;
+use super::memo::{save_result, try_remember};
 use super::tokenizer::{Token, TokenType as TT};
 
 pub fn parse(input: &[Token]) -> (Vec<Statement>, Vec<Error>) {
     let errors = RefCell::new(Vec::new());
-    let parser_input = ParserInput::new(input, ParserState::new(&errors), Pass::FirstScan);
+    let cache = RefCell::new(ExpressionCache::new());
+    let parser_input = ParserInput::new(input, ParserState::new(&errors, &cache), Pass::FirstScan);
     let stmts = match file_.parse(parser_input) {
         ParseResult::Err => {
-            let parser_input =
-                ParserInput::new(input, ParserState::new(&errors), Pass::ErrorLocation);
+            let cache = RefCell::new(ExpressionCache::new());
+            let parser_input = ParserInput::new(
+                input,
+                ParserState::new(&errors, &cache),
+                Pass::ErrorLocation,
+            );
             let res = file_.parse(parser_input);
             println!("{:?}", res);
             vec![]
@@ -79,7 +85,8 @@ pub fn parse(input: &[Token]) -> (Vec<Statement>, Vec<Error>) {
 
 pub fn parse_interactive(input: &[Token]) -> (Vec<Statement>, Vec<Error>) {
     let errors = RefCell::new(Vec::new());
-    let input = ParserInput::new(input, ParserState::new(&errors), Pass::FirstScan);
+    let cache = RefCell::new(ExpressionCache::new());
+    let input = ParserInput::new(input, ParserState::new(&errors, &cache), Pass::FirstScan);
     let stmts = interactive.parse(input).expect("Parser shall not fail.");
     (stmts, errors.into_inner())
 }
@@ -1777,7 +1784,10 @@ fn expressions(input: ParserInput) -> ParseResult<Vec<Expression>> {
 //     | disjunction
 //     | lambdef
 fn expression(input: ParserInput) -> ParseResult<Expression> {
-    on_error_pass(invalid_expression.or(invalid_legacy_expression))
+    if let Some(result) = try_remember(input, expression) {
+        return result;
+    }
+    let result = on_error_pass(invalid_expression.or(invalid_legacy_expression))
         .or(pair(
             disjunction,
             maybe(pair(
@@ -1793,7 +1803,9 @@ fn expression(input: ParserInput) -> ParseResult<Expression> {
             None => t,
         }))
         .or(lambdef)
-        .parse(input)
+        .parse(input);
+    save_result(input, expression, &result);
+    result
 }
 
 // yield_expr:
@@ -1834,13 +1846,18 @@ fn star_expressions(input: ParserInput) -> ParseResult<Vec<Expression>> {
 //     | '*' bitwise_or
 //     | expression
 fn star_expression(input: ParserInput) -> ParseResult<Expression> {
-    pair(tok(TT::STAR), bitwise_or)
+    if let Some(result) = try_remember(input, star_expression) {
+        return result;
+    }
+    let result = pair(tok(TT::STAR), bitwise_or)
         .map(|(t, e)| {
             let s = t.span.till(&e);
             Expression::ListUnwrap(Box::new(e), s)
         })
         .or(expression)
-        .parse(input)
+        .parse(input);
+    save_result(input, star_expression, &result);
+    result
 }
 
 // star_named_expressions: ','.star_named_expression+ [',']
@@ -1895,39 +1912,54 @@ fn named_expression(input: ParserInput) -> ParseResult<Expression> {
 //     | conjunction ('or' conjunction )+
 //     | conjunction
 fn disjunction(input: ParserInput) -> ParseResult<Expression> {
-    pair(conjunction, right(token(TT::KEYWORD, "or"), conjunction))
+    if let Some(result) = try_remember(input, disjunction) {
+        return result;
+    }
+    let result = pair(conjunction, right(token(TT::KEYWORD, "or"), conjunction))
         .map(|(l, r)| {
             let s = l.span().till(&r);
             Expression::BinaryOperation(Operator::Or, Box::new((l, r)), s)
         })
         .or(conjunction)
-        .parse(input)
+        .parse(input);
+    save_result(input, disjunction, &result);
+    result
 }
 
 // conjunction:
 //     | inversion ('and' inversion )+
 //     | inversion
 fn conjunction(input: ParserInput) -> ParseResult<Expression> {
-    pair(inversion, right(token(TT::KEYWORD, "and"), inversion))
+    if let Some(result) = try_remember(input, conjunction) {
+        return result;
+    }
+    let result = pair(inversion, right(token(TT::KEYWORD, "and"), inversion))
         .map(|(l, r)| {
             let s = l.span().till(&r);
             Expression::BinaryOperation(Operator::And, Box::new((l, r)), s)
         })
         .or(inversion)
-        .parse(input)
+        .parse(input);
+    save_result(input, conjunction, &result);
+    result
 }
 
 // inversion:
 //     | 'not' inversion
 //     | comparison
 fn inversion(input: ParserInput) -> ParseResult<Expression> {
-    pair(token_nodiscard(TT::KEYWORD, "not"), inversion)
+    if let Some(result) = try_remember(input, inversion) {
+        return result;
+    }
+    let result = pair(token_nodiscard(TT::KEYWORD, "not"), inversion)
         .map(|(t, i)| {
             let s = t.span.till(&i);
             Expression::UnaryOperation(Operator::Not, Box::new(i), s)
         })
         .or(comparison)
-        .parse(input)
+        .parse(input);
+    save_result(input, inversion, &result);
+    result
 }
 
 // # Comparison operators
@@ -2334,7 +2366,10 @@ fn term(input: ParserInput) -> ParseResult<Expression> {
 //     | '~' factor
 //     | power
 fn factor(input: ParserInput) -> ParseResult<Expression> {
-    power
+    if let Some(result) = try_remember(input, factor) {
+        return result;
+    }
+    let result = power
         .or(
             pair(tok(TT::PLUS).or(tok(TT::MINUS)).or(tok(TT::TILDE)), factor).map(|(o, e)| {
                 let op = o.clone().into();
@@ -2347,7 +2382,9 @@ fn factor(input: ParserInput) -> ParseResult<Expression> {
                 }
             }),
         )
-        .parse(input)
+        .parse(input);
+    save_result(input, factor, &result);
+    result
 }
 
 // power:
@@ -2373,9 +2410,14 @@ fn power(input: ParserInput) -> ParseResult<Expression> {
 //     | AWAIT primary
 //     | primary
 fn await_primary(input: ParserInput) -> ParseResult<Expression> {
-    right(token(TT::KEYWORD, "await"), primary)
+    if let Some(result) = try_remember(input, await_primary) {
+        return result;
+    }
+    let result = right(token(TT::KEYWORD, "await"), primary)
         .or(primary)
-        .parse(input)
+        .parse(input);
+    save_result(input, await_primary, &result);
+    result
 }
 
 // primary:
@@ -3236,9 +3278,14 @@ fn star_targets_tuple_seq(input: ParserInput) -> ParseResult<Vec<Expression>> {
 //     | '*' (!'*' star_target)
 //     | target_with_star_atom
 fn star_target(input: ParserInput) -> ParseResult<Expression> {
-    right(tok(TT::STAR), right(not(tok(TT::STAR)), star_target))
+    if let Some(result) = try_remember(input, star_target) {
+        return result;
+    }
+    let result = right(tok(TT::STAR), right(not(tok(TT::STAR)), star_target))
         .or(target_with_star_atom)
-        .parse(input)
+        .parse(input);
+    save_result(input, star_target, &result);
+    result
 }
 
 // target_with_star_atom:
@@ -3246,7 +3293,10 @@ fn star_target(input: ParserInput) -> ParseResult<Expression> {
 //     | t_primary '[' slices ']' !t_lookahead
 //     | star_atom
 fn target_with_star_atom(input: ParserInput) -> ParseResult<Expression> {
-    pair(
+    if let Some(result) = try_remember(input, target_with_star_atom) {
+        return result;
+    }
+    let result = pair(
         t_primary,
         left(
             right(tok(TT::DOT), name.map(Selector::Name)),
@@ -3262,7 +3312,9 @@ fn target_with_star_atom(input: ParserInput) -> ParseResult<Expression> {
     )
     .map(|(p, s)| s.apply_to(p))
     .or(star_atom)
-    .parse(input)
+    .parse(input);
+    save_result(input, target_with_star_atom, &result);
+    result
 }
 
 // star_atom:
@@ -3458,9 +3510,14 @@ fn del_targets(input: ParserInput) -> ParseResult<Vec<Expression>> {
 //     | t_primary !t_lookahead
 //     | del_t_atom
 fn del_target(input: ParserInput) -> ParseResult<Expression> {
-    left(t_primary, not(t_lookahead))
+    if let Some(result) = try_remember(input, del_target) {
+        return result;
+    }
+    let result = left(t_primary, not(t_lookahead))
         .or(del_t_atom)
-        .parse(input)
+        .parse(input);
+    save_result(input, del_target, &result);
+    result
 }
 
 // del_t_atom:
@@ -3756,7 +3813,10 @@ fn invalid_expression(input: ParserInput) -> ParseResult<Expression> {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "cannot assign to %s here. Maybe you meant '==' instead of '='?",
 //                                           _PyPegen_get_expr_name(a)) }
 fn invalid_named_expression(input: ParserInput) -> ParseResult<Expression> {
-    left(left(expression, tok(TT::COLONEQUAL)), expression)
+    if let Some(result) = try_remember(input, invalid_named_expression) {
+        return result;
+    }
+    let result = left(left(expression, tok(TT::COLONEQUAL)), expression)
         .map(move |t| {
             let error = Error::starting_from(t.span(), "cannot use assignment expressions here");
             input.report_error(error);
@@ -3796,7 +3856,9 @@ fn invalid_named_expression(input: ParserInput) -> ParseResult<Expression> {
             input.report_error(error);
             Expression::Invalid(s.span().till(&t))
         }))
-        .parse(input)
+        .parse(input);
+    save_result(input, invalid_named_expression, &result);
+    result
 }
 
 // invalid_assignment:

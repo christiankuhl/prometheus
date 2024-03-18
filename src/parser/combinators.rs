@@ -1,21 +1,25 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 use super::tokenizer::{Token, TokenType};
 use  super::locations::Span;
 use super::error::Error;
+use super::Expression;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ParseResult<'a, Output> {
     Ok((Output, ParserInput<'a>)),
     Err,
 }
 
+pub type ExpressionCache<'a> = HashMap<(usize, usize), ParseResult<'a, Expression>>;
+
 #[derive(Debug, Clone, Copy)]
-pub struct ParserState<'a>(&'a RefCell<Vec<Error>>);
+pub struct ParserState<'a>(&'a RefCell<Vec<Error>>, pub(super) &'a RefCell<ExpressionCache<'a>>);
 
 impl<'a> ParserState<'a> {
-    pub fn new(errors: &'a RefCell<Vec<Error>>) -> Self {
-        Self(errors)
+    pub fn new(errors: &'a RefCell<Vec<Error>>, cache: &'a RefCell<ExpressionCache<'a>>) -> Self {
+        Self(errors, cache)
     }
 }
 
@@ -26,7 +30,7 @@ pub enum Pass {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct ParserInput<'a>(&'a [Token], ParserState<'a>, Pass);
+pub struct ParserInput<'a>(pub(super) &'a [Token], pub(super) ParserState<'a>, Pass);
 
 impl<'a> ParserInput<'a> {
     pub fn new(input: &'a [Token], state: ParserState<'a>, pass: Pass) -> Self {
