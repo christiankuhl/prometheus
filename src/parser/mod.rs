@@ -1,11 +1,11 @@
-mod grammar;
 mod ast;
 mod combinators;
-mod locations;
-pub mod tokenizer;
 mod error;
+mod grammar;
+mod locations;
 mod memo;
+pub mod tokenizer;
 
-pub use grammar::{parse, parse_interactive};
-pub use combinators::{ParseResult, ParserInput};
 pub use ast::*;
+pub use combinators::{ParseResult, ParserInput};
+pub use grammar::{parse, parse_interactive};

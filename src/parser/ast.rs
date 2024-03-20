@@ -3,73 +3,75 @@ use super::tokenizer::{
     Token, TokenType as TT, BINNUMBER, DECNUMBER, FLOATNUMBER, HEXNUMBER, IMAGNUMBER, OCTNUMBER,
 };
 
+use std::rc::Rc;
+
 #[derive(Debug, Clone)]
 pub enum Statement {
     FunctionDeclaration(FunctionDeclaration, Vec<Decorator>, Span),
     Continue(Span),
     Break(Span),
     Pass(Span),
-    Expressions(Vec<Expression>, Span),
-    Return(Vec<Expression>, Span),
+    Expressions(Vec<Rc<Expression>>, Span),
+    Return(Vec<Rc<Expression>>, Span),
     If(
-        Expression,
+        Rc<Expression>,
         Vec<Statement>,
-        Vec<(Expression, Vec<Statement>)>,
+        Vec<(Rc<Expression>, Vec<Statement>)>,
         Option<Vec<Statement>>,
         Span,
     ),
     ClassDefinition(ClassDefinition, Span),
     With(
-        Vec<Expression>,    // item
-        Vec<Statement>,     // block
-        Option<Expression>, // type comment
-        bool,               // async
+        Vec<Rc<Expression>>,    // item
+        Vec<Statement>,         // block
+        Option<Rc<Expression>>, // type comment
+        bool,                   // async
         Span,
     ),
     For(
-        Vec<Expression>,        // targets
-        Vec<Expression>,        // expression
+        Vec<Rc<Expression>>,    // targets
+        Vec<Rc<Expression>>,    // expression
         Vec<Statement>,         // block
         Option<Vec<Statement>>, // else block
-        Option<Expression>,     // type comment
+        Option<Rc<Expression>>, // type comment
         bool,                   // async
         Span,
     ),
     Try(
         Vec<Statement>,         // block
-        Vec<Expression>,        // except_block
+        Vec<Rc<Expression>>,    // except_block
         Option<Vec<Statement>>, // else_block
         Option<Vec<Statement>>, // finally_block
         Span,
     ),
     While(
-        Box<Expression>,
+        Rc<Rc<Expression>>,
         Vec<Statement>,
         Option<Vec<Statement>>,
         Span,
     ),
     Assignment(
-        Vec<Expression>,         // targets
-        Option<Operator>,        // augassign
-        Option<Vec<Expression>>, // rhs
-        Option<Box<Expression>>, // type
+        Vec<Rc<Expression>>,         // targets
+        Option<Operator>,            // augassign
+        Option<Vec<Rc<Expression>>>, // rhs
+        Option<Rc<Expression>>,      // type
         Span,
     ),
-    Del(Vec<Expression>, Span),
-    Yield(Box<Expression>, Span),
-    Assert(Box<Expression>, Option<Box<Expression>>, Span),
+    Del(Vec<Rc<Expression>>, Span),
+    Yield(Rc<Expression>, Span),
+    Assert(Rc<Expression>, Option<Rc<Expression>>, Span),
     Global(Vec<Name>, Span),
     Nonlocal(Vec<Name>, Span),
     Import(Vec<Import>, Span),
-    Raise(Option<Box<Expression>>, Option<Box<Expression>>, Span),
-    Match(Vec<Expression>, Vec<Expression>, Span),
-    Type(Name, Vec<Expression>, Box<Expression>, Span),
+    Raise(Option<Rc<Expression>>, Option<Rc<Expression>>, Span),
+    Match(Vec<Rc<Expression>>, Vec<Rc<Expression>>, Span),
+    Type(Name, Vec<Rc<Expression>>, Rc<Expression>, Span),
     Invalid,
 }
 
 #[derive(Clone)]
 pub struct Name {
-    pub(super) name: String,
+    pub(super) name: Rc<str>,
     pub(super) span: Span,
 }
 
@@ -83,7 +85,7 @@ impl From<Token> for Name {
     fn from(value: Token) -> Self {
         match value.typ {
             TT::NAME => Self {
-                name: value.lexeme,
+                name: Rc::from(value.lexeme),
                 span: value.span,
             },
             _ => unreachable!(),
@@ -105,21 +107,21 @@ pub struct ClassDefinition {
     pub(super) ancestors: Arguments,
     pub(super) body: Vec<Statement>,
     pub(super) decorators: Vec<Decorator>,
-    pub(super) type_params: Vec<Expression>,
+    pub(super) type_params: Vec<Rc<Expression>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Parameter {
     pub(super) name: Name,
-    pub(super) default: Option<Expression>,
-    pub(super) annotation: Option<Expression>,
+    pub(super) default: Option<Rc<Expression>>,
+    pub(super) annotation: Option<Rc<Expression>>,
     pub(super) starred: bool,
     pub(super) double_starred: bool,
-    pub(super) type_comment: Option<String>,
+    pub(super) type_comment: Option<Rc<str>>,
 }
 
 impl Parameter {
-    pub(super) fn with_default(name: Name, default: Expression) -> Self {
+    pub(super) fn with_default(name: Name, default: Rc<Expression>) -> Self {
         Self {
             name,
             default: Some(default),
@@ -129,7 +131,7 @@ impl Parameter {
             type_comment: None,
         }
     }
-    pub(super) fn with_annotation(name: Name, annotation: Option<Expression>) -> Self {
+    pub(super) fn with_annotation(name: Name, annotation: Option<Rc<Expression>>) -> Self {
         Self {
             name,
             default: None,
@@ -159,64 +161,64 @@ impl From<Name> for Parameter {
 }
 
 #[derive(Debug, Clone)]
-pub struct Decorator(pub(super) Expression);
+pub struct Decorator(pub(super) Rc<Expression>);
 
 #[derive(Debug, Clone)]
 pub enum Pattern {
     Wildcard,
-    Capture(Option<Box<Pattern>>, Name),
-    Literal(Expression),
+    Capture(Option<Rc<Pattern>>, Name),
+    Literal(Rc<Expression>),
     Value(Vec<Name>),
-    Group(Box<Pattern>),
+    Group(Rc<Pattern>),
     Sequence(Vec<Pattern>),
-    Star(Box<Pattern>),
+    Star(Rc<Pattern>),
     DoubleStar(Name),
     Mapping(Vec<Pattern>),
-    Class(Box<Expression>, Vec<Pattern>),
+    Class(Rc<Expression>, Vec<Pattern>),
     Disjunction(Vec<Pattern>),
-    KeyValue(Box<Expression>, Box<Pattern>),
+    KeyValue(Rc<Expression>, Rc<Pattern>),
     Invalid(Span),
 }
 
 #[derive(Debug, Clone)]
 pub enum Expression {
-    ListUnwrap(Box<Expression>, Span),
-    BinaryOperation(Operator, Box<(Expression, Expression)>, Span),
-    UnaryOperation(Operator, Box<Expression>, Span),
-    Subscript(Box<Expression>, Name, Span),
-    Call(Box<Expression>, Arguments, Span),
-    Slice(Box<Expression>, Vec<Slice>, Span),
-    WithItem(Box<Expression>, Option<Box<Expression>>, Span),
+    ListUnwrap(Rc<Expression>, Span),
+    BinaryOperation(Operator, Rc<Expression>, Rc<Expression>, Span),
+    UnaryOperation(Operator, Rc<Expression>, Span),
+    Subscript(Rc<Expression>, Name, Span),
+    Call(Rc<Expression>, Arguments, Span),
+    Slice(Rc<Expression>, Vec<Slice>, Span),
+    WithItem(Rc<Expression>, Option<Rc<Expression>>, Span),
     ExceptBlock(
-        Option<Box<Expression>>,
+        Option<Rc<Expression>>,
         Option<Name>,
         Vec<Statement>,
         bool,
         Span,
     ),
-    Walrus(Box<Expression>, Box<Expression>, Span),
-    Ternary(Box<Expression>, Box<Expression>, Box<Expression>, Span),
-    Comparison(Box<Expression>, Vec<(Operator, Expression)>, Span),
+    Walrus(Rc<Expression>, Rc<Expression>, Span),
+    Ternary(Rc<Expression>, Rc<Expression>, Rc<Expression>, Span),
+    Comparison(Rc<Expression>, Vec<(Operator, Rc<Expression>)>, Span),
     Strings(Vec<PyString>, Span),
-    Yield(Vec<Expression>, Span),
-    YieldFrom(Box<Expression>, Span),
-    Generator(Box<Expression>, Vec<Expression>, Span),
+    Yield(Vec<Rc<Expression>>, Span),
+    YieldFrom(Rc<Expression>, Span),
+    Generator(Rc<Expression>, Vec<Rc<Expression>>, Span),
     ForIfClause(
-        Vec<Expression>,
-        Box<Expression>,
-        Vec<Expression>,
+        Vec<Rc<Expression>>,
+        Rc<Expression>,
+        Vec<Rc<Expression>>,
         bool,
         Span,
     ),
-    Tuple(Vec<Expression>, Span),
-    List(Vec<Expression>, Span),
-    ListComprehension(Box<Expression>, Vec<Expression>, Span),
-    DictUnwrap(Box<Expression>, Span),
-    Dict(Vec<Expression>, Span),
-    DictComprehension(Box<Expression>, Vec<Expression>, Span),
-    Set(Vec<Expression>, Span),
-    SetComprehension(Box<Expression>, Vec<Expression>, Span),
-    KeywordArgument(Name, Box<Expression>, Span),
+    Tuple(Vec<Rc<Expression>>, Span),
+    List(Vec<Rc<Expression>>, Span),
+    ListComprehension(Rc<Expression>, Vec<Rc<Expression>>, Span),
+    DictUnwrap(Rc<Expression>, Span),
+    Dict(Vec<Rc<Expression>>, Span),
+    DictComprehension(Rc<Expression>, Vec<Rc<Expression>>, Span),
+    Set(Vec<Rc<Expression>>, Span),
+    SetComprehension(Rc<Expression>, Vec<Rc<Expression>>, Span),
+    KeywordArgument(Name, Rc<Expression>, Span),
     FStringReplacement(FStringReplacement, Span),
     Name(Name, Span),
     Number(Number, Span),
@@ -224,13 +226,13 @@ pub enum Expression {
     True(Span),
     False(Span),
     None(Span),
-    Case(Vec<Pattern>, Option<Box<Expression>>, Vec<Statement>, Span),
+    Case(Vec<Pattern>, Option<Rc<Expression>>, Vec<Statement>, Span),
     TypeBound(TypeBound, Span),
-    Pattern(Box<Pattern>, Span),
+    Pattern(Rc<Pattern>, Span),
     Attribute(Vec<Name>, Span),
-    Lambda(Vec<Parameter>, Box<Expression>, Span),
-    TypeComment(String, Span),
-    PrimaryGenexp(Box<Expression>, Box<Expression>, Span), // ???
+    Lambda(Vec<Parameter>, Rc<Expression>, Span),
+    TypeComment(Rc<str>, Span),
+    PrimaryGenexp(Rc<Expression>, Rc<Expression>, Span), // ???
     FString(FString, Span),
     ImportItems(Vec<ImportItem>, Span),
     Parameters(Vec<Parameter>, Span),
@@ -243,8 +245,8 @@ pub(crate) enum IncompleteExpression {
     Subscript(Name, Box<IncompleteExpression>),
     Call(Arguments, Box<IncompleteExpression>),
     Slice(Vec<Slice>, Box<IncompleteExpression>),
-    BinaryOperation(Operator, Box<Expression>, Box<IncompleteExpression>),
-    PrimaryGenexp(Box<Expression>, Box<IncompleteExpression>), // ???
+    BinaryOperation(Operator, Box<Rc<Expression>>, Box<IncompleteExpression>),
+    PrimaryGenexp(Box<Rc<Expression>>, Box<IncompleteExpression>), // ???
     Invalid,
     Empty,
 }
@@ -258,29 +260,29 @@ impl IncompleteExpression {
 #[derive(Debug, Clone)]
 pub struct TypeBound {
     pub(super) name: Name,
-    pub(super) type_bound: Option<Box<Expression>>,
+    pub(super) type_bound: Option<Rc<Expression>>,
     pub(super) starred: bool,
     pub(super) double_starred: bool,
 }
 
 #[derive(Debug, Clone)]
 pub enum PyString {
-    Literal(String, Span),
+    Literal(Rc<str>, Span),
     FString(Vec<FString>),
 }
 
 #[derive(Debug, Clone)]
 pub enum FString {
-    Literal(String, Span),
+    Literal(Rc<str>, Span),
     Interpolated(FStringReplacement),
 }
 
 #[derive(Debug, Clone)]
 pub struct FStringReplacement {
-    pub(super) exprs: Vec<Expression>,
+    pub(super) exprs: Vec<Rc<Expression>>,
     pub(super) debug: bool,
     pub(super) conversion: Option<Name>,
-    pub(super) format_specs: Vec<Expression>,
+    pub(super) format_specs: Vec<Rc<Expression>>,
 }
 
 #[derive(Debug, Clone)]
@@ -327,8 +329,8 @@ pub struct Argument;
 
 #[derive(Debug, Clone)]
 pub struct Arguments {
-    pub(super) positional: Vec<Expression>,
-    pub(super) keyword: Vec<Expression>,
+    pub(super) positional: Vec<Rc<Expression>>,
+    pub(super) keyword: Vec<Rc<Expression>>,
 }
 
 impl Arguments {
@@ -348,12 +350,16 @@ impl From<Expression> for Argument {
 
 #[derive(Debug, Clone)]
 pub enum Slice {
-    Simple(Expression),
-    Delimited(Option<Expression>, Option<Expression>, Option<Expression>),
+    Simple(Rc<Expression>),
+    Delimited(
+        Option<Rc<Expression>>,
+        Option<Rc<Expression>>,
+        Option<Rc<Expression>>,
+    ),
 }
 
-impl From<Expression> for Slice {
-    fn from(value: Expression) -> Self {
+impl From<Rc<Expression>> for Slice {
+    fn from(value: Rc<Expression>) -> Self {
         Self::Simple(value)
     }
 }
@@ -389,8 +395,8 @@ pub enum Operator {
     GreaterThan,
 }
 
-impl From<Token> for Operator {
-    fn from(value: Token) -> Self {
+impl From<&Token> for Operator {
+    fn from(value: &Token) -> Self {
         match value.typ {
             TT::VBAR => Self::BitwiseOr,
             TT::VBAREQUAL => Self::BitwiseOr,
@@ -427,6 +433,12 @@ impl From<Token> for Operator {
             TT::GREATER => Self::GreaterThan,
             _ => unreachable!(),
         }
+    }
+}
+
+impl From<Token> for Operator {
+    fn from(value: Token) -> Self {
+        Self::from(&value)
     }
 }
 

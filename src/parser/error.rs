@@ -24,10 +24,6 @@ impl Error {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Error: {} in {:?}",
-            self.1, self.0,
-        )
+        write!(f, "Error: {} in {:?}", self.1, self.0,)
     }
 }

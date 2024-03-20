@@ -21,39 +21,39 @@ pub fn evaluate(statement: &Statement) -> FlowControl {
                 evaluate_expr(expr);
             }
             FlowControl::NextStatement
-        },
+        }
         Statement::Return(exprs, _) => todo!(),
         Statement::If(expr, then_block, elifs, else_block, _) => {
             if evaluate_expr(expr).__bool__() {
                 for stmt in then_block {
                     let flow = evaluate(stmt);
                     if !matches!(flow, FlowControl::NextStatement) {
-                        return flow
+                        return flow;
                     }
                 }
-                return FlowControl::NextStatement
+                return FlowControl::NextStatement;
             }
             for (elif, block) in elifs {
                 if evaluate_expr(elif).__bool__() {
                     for stmt in block {
                         let flow = evaluate(stmt);
                         if !matches!(flow, FlowControl::NextStatement) {
-                            return flow
+                            return flow;
                         }
                     }
-                    return FlowControl::NextStatement
+                    return FlowControl::NextStatement;
                 }
             }
             if let Some(else_block) = else_block {
                 for stmt in else_block {
                     let flow = evaluate(stmt);
                     if !matches!(flow, FlowControl::NextStatement) {
-                        return flow
+                        return flow;
                     }
                 }
             }
             FlowControl::NextStatement
-        },
+        }
         Statement::ClassDefinition(class, _) => todo!(),
         Statement::With(expr, block, type_comment, is_async, _) => todo!(),
         Statement::For(tgts, exprs, block, else_block, type_comment, is_async, _) => todo!(),
@@ -67,7 +67,7 @@ pub fn evaluate(statement: &Statement) -> FlowControl {
                         FlowControl::Break => return FlowControl::NextStatement,
                         FlowControl::Return(v) => return FlowControl::Return(v),
                         FlowControl::Raise(e) => return FlowControl::Raise(e),
-                        _ => {},
+                        _ => {}
                     }
                 }
             }
@@ -75,12 +75,12 @@ pub fn evaluate(statement: &Statement) -> FlowControl {
                 for stmt in else_block {
                     let flow = evaluate(stmt);
                     if !matches!(flow, FlowControl::NextStatement) {
-                        return flow
+                        return flow;
                     }
                 }
             }
             FlowControl::NextStatement
-        },
+        }
         Statement::Assignment(tgts, op, rhs, typ, _) => todo!(),
         Statement::Del(exprs, _) => todo!(),
         Statement::Yield(expr, _) => todo!(),
@@ -98,7 +98,7 @@ pub fn evaluate(statement: &Statement) -> FlowControl {
 fn evaluate_expr(expression: &Expression) -> impl PyObject {
     match expression {
         Expression::ListUnwrap(expr, _) => todo!(),
-        Expression::BinaryOperation(op, args, _) => todo!(),
+        Expression::BinaryOperation(op, larg, rarg, _) => todo!(),
         Expression::UnaryOperation(op, arg, _) => todo!(),
         Expression::Subscript(expr, name, _) => todo!(),
         Expression::Call(expr, args, _) => todo!(),

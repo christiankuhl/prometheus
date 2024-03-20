@@ -1,7 +1,8 @@
 use super::ast::*;
 use super::tokenizer::Token;
+use std::rc::Rc;
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug)]
 pub(crate) struct Location {
     pub(crate) line: usize,
     pub(crate) column: usize,
@@ -17,14 +18,14 @@ pub trait Locatable {
     fn span(&self) -> Span;
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug)]
 pub enum Span {
     #[default]
     Indetermined,
     Determined(_Span),
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug)]
 pub struct _Span {
     pub(crate) start: Location,
     pub(crate) end: Location,
@@ -74,11 +75,11 @@ impl Span {
     pub(super) fn till<R: Locatable>(&self, other: &R) -> Self {
         match (self, other.span()) {
             (Self::Indetermined, Self::Indetermined) => Self::Indetermined,
-            (Self::Indetermined, Self::Determined(t)) => Self::Determined(t.clone()),
-            (Self::Determined(s), Self::Indetermined) => Self::Determined(s.clone()),
+            (Self::Indetermined, Self::Determined(t)) => Self::Determined(t),
+            (Self::Determined(s), Self::Indetermined) => Self::Determined(*s),
             (Self::Determined(s), Self::Determined(t)) => Self::Determined(_Span {
-                start: s.start.clone(),
-                end: t.end.clone(),
+                start: s.start,
+                end: t.end,
             }),
         }
     }
@@ -95,13 +96,13 @@ impl Span {
             Self::Determined(s) => {
                 let end = match block.last() {
                     Some(t) => match t.span() {
-                        Self::Determined(u) => u.end.clone(),
-                        Self::Indetermined => s.end.clone(),
+                        Self::Determined(u) => u.end,
+                        Self::Indetermined => s.end,
                     },
-                    None => s.end.clone(),
+                    None => s.end,
                 };
                 Self::Determined(_Span {
-                    start: s.start.clone(),
+                    start: s.start,
                     end,
                 })
             }
@@ -114,19 +115,19 @@ impl Span {
                 None => Self::Indetermined,
                 Some(r) => match r.span() {
                     Self::Indetermined => Self::Indetermined,
-                    Self::Determined(s) => Self::Determined(s.clone()),
+                    Self::Determined(s) => Self::Determined(s),
                 },
             },
             Self::Determined(s) => {
                 let end = match other {
                     Some(t) => match t.span() {
-                        Self::Indetermined => s.end.clone(),
-                        Self::Determined(u) => u.end.clone(),
+                        Self::Indetermined => s.end,
+                        Self::Determined(u) => u.end,
                     },
-                    None => s.end.clone(),
+                    None => s.end,
                 };
                 Self::Determined(_Span {
-                    start: s.start.clone(),
+                    start: s.start,
                     end,
                 })
             }
@@ -137,7 +138,7 @@ impl Span {
 impl _Span {
     fn till(&self, other: Self) -> Self {
         Self {
-            start: self.start.clone(),
+            start: self.start,
             end: other.end,
         }
     }
@@ -166,7 +167,7 @@ where
 
 impl Locatable for Token {
     fn span(&self) -> Span {
-        self.span.clone()
+        self.span
     }
 }
 
@@ -179,37 +180,46 @@ where
     }
 }
 
+impl<R> Locatable for Rc<R>
+where
+    R: Locatable,
+{
+    fn span(&self) -> Span {
+        (**self).span()
+    }
+}
+
 impl Locatable for Span {
     fn span(&self) -> Span {
-        self.clone()
+        *self
     }
 }
 
 impl Locatable for Statement {
     fn span(&self) -> Span {
-        match self {
-            Self::FunctionDeclaration(_, _, s) => s.clone(),
-            Self::Continue(s) => s.clone(),
-            Self::Break(s) => s.clone(),
-            Self::Pass(s) => s.clone(),
-            Self::Expressions(_, s) => s.clone(),
-            Self::Return(_, s) => s.clone(),
-            Self::If(_, _, _, _, s) => s.clone(),
-            Self::ClassDefinition(_, s) => s.clone(),
-            Self::With(_, _, _, _, s) => s.clone(),
-            Self::For(_, _, _, _, _, _, s) => s.clone(),
-            Self::Try(_, _, _, _, s) => s.clone(),
-            Self::While(_, _, _, s) => s.clone(),
-            Self::Assignment(_, _, _, _, s) => s.clone(),
-            Self::Del(_, s) => s.clone(),
-            Self::Yield(_, s) => s.clone(),
-            Self::Assert(_, _, s) => s.clone(),
-            Self::Global(_, s) => s.clone(),
-            Self::Nonlocal(_, s) => s.clone(),
-            Self::Import(_, s) => s.clone(),
-            Self::Raise(_, _, s) => s.clone(),
-            Self::Match(_, _, s) => s.clone(),
-            Self::Type(_, _, _, s) => s.clone(),
+        match *self {
+            Self::FunctionDeclaration(_, _, s) => s,
+            Self::Continue(s) => s,
+            Self::Break(s) => s,
+            Self::Pass(s) => s,
+            Self::Expressions(_, s) => s,
+            Self::Return(_, s) => s,
+            Self::If(_, _, _, _, s) => s,
+            Self::ClassDefinition(_, s) => s,
+            Self::With(_, _, _, _, s) => s,
+            Self::For(_, _, _, _, _, _, s) => s,
+            Self::Try(_, _, _, _, s) => s,
+            Self::While(_, _, _, s) => s,
+            Self::Assignment(_, _, _, _, s) => s,
+            Self::Del(_, s) => s,
+            Self::Yield(_, s) => s,
+            Self::Assert(_, _, s) => s,
+            Self::Global(_, s) => s,
+            Self::Nonlocal(_, s) => s,
+            Self::Import(_, s) => s,
+            Self::Raise(_, _, s) => s,
+            Self::Match(_, _, s) => s,
+            Self::Type(_, _, _, s) => s,
             Self::Invalid => unreachable!(),
         }
     }
@@ -217,7 +227,7 @@ impl Locatable for Statement {
 
 impl Locatable for Name {
     fn span(&self) -> Span {
-        self.span.clone()
+        self.span
     }
 }
 
@@ -235,51 +245,51 @@ impl Locatable for Decorator {
 
 impl Locatable for Expression {
     fn span(&self) -> Span {
-        match self {
-            Self::List(_, s) => s.clone(),
-            Self::Case(_, _, _, s) => s.clone(),
-            Self::Subscript(_, _, s) => s.clone(),
-            Self::Call(_, _, s) => s.clone(),
-            Self::UnaryOperation(_, _, s) => s.clone(),
-            Self::Slice(_, _, s) => s.clone(),
-            Self::WithItem(_, _, s) => s.clone(),
-            Self::ExceptBlock(_, _, _, _, s) => s.clone(),
-            Self::Walrus(_, _, s) => s.clone(),
-            Self::Ternary(_, _, _, s) => s.clone(),
-            Self::Comparison(_, _, s) => s.clone(),
-            Self::Strings(_, s) => s.clone(),
-            Self::Yield(_, s) => s.clone(),
-            Self::YieldFrom(_, s) => s.clone(),
-            Self::Generator(_, _, s) => s.clone(),
-            Self::ForIfClause(_, _, _, _, s) => s.clone(),
-            Self::BinaryOperation(_, _, s) => s.clone(),
-            Self::ListComprehension(_, _, s) => s.clone(),
-            Self::DictComprehension(_, _, s) => s.clone(),
-            Self::SetComprehension(_, _, s) => s.clone(),
-            Self::Lambda(_, _, s) => s.clone(),
-            Self::Tuple(_, s) => s.clone(),
-            Self::PrimaryGenexp(_, _, s) => s.clone(),
-            Self::KeywordArgument(_, _, s) => s.clone(),
-            Self::ListUnwrap(_, s) => s.clone(),
-            Self::Name(_, s) => s.clone(),
-            Self::Number(_, s) => s.clone(),
-            Self::FStringReplacement(_, s) => s.clone(),
-            Self::DictUnwrap(_, s) => s.clone(),
-            Self::Dict(_, s) => s.clone(),
-            Self::Set(_, s) => s.clone(),
-            Self::TypeBound(_, s) => s.clone(),
-            Self::Pattern(_, s) => s.clone(),
-            Self::Attribute(_, s) => s.clone(),
-            Self::TypeComment(_, s) => s.clone(),
-            Self::None(s) => s.clone(),
-            Self::Ellipsis(s) => s.clone(),
-            Self::True(s) => s.clone(),
-            Self::False(s) => s.clone(),
-            Self::FString(_, s) => s.clone(),
-            Self::ImportItems(_, s) => s.clone(),
-            Self::Parameters(_, s) => s.clone(),
-            Self::Arguments(_, s) => s.clone(),
-            Self::Invalid(s) => s.clone(),
+        match *self {
+            Self::List(_, s) => s,
+            Self::Case(_, _, _, s) => s,
+            Self::Subscript(_, _, s) => s,
+            Self::Call(_, _, s) => s,
+            Self::UnaryOperation(_, _, s) => s,
+            Self::Slice(_, _, s) => s,
+            Self::WithItem(_, _, s) => s,
+            Self::ExceptBlock(_, _, _, _, s) => s,
+            Self::Walrus(_, _, s) => s,
+            Self::Ternary(_, _, _, s) => s,
+            Self::Comparison(_, _, s) => s,
+            Self::Strings(_, s) => s,
+            Self::Yield(_, s) => s,
+            Self::YieldFrom(_, s) => s,
+            Self::Generator(_, _, s) => s,
+            Self::ForIfClause(_, _, _, _, s) => s,
+            Self::BinaryOperation(_, _, _, s) => s,
+            Self::ListComprehension(_, _, s) => s,
+            Self::DictComprehension(_, _, s) => s,
+            Self::SetComprehension(_, _, s) => s,
+            Self::Lambda(_, _, s) => s,
+            Self::Tuple(_, s) => s,
+            Self::PrimaryGenexp(_, _, s) => s,
+            Self::KeywordArgument(_, _, s) => s,
+            Self::ListUnwrap(_, s) => s,
+            Self::Name(_, s) => s,
+            Self::Number(_, s) => s,
+            Self::FStringReplacement(_, s) => s,
+            Self::DictUnwrap(_, s) => s,
+            Self::Dict(_, s) => s,
+            Self::Set(_, s) => s,
+            Self::TypeBound(_, s) => s,
+            Self::Pattern(_, s) => s,
+            Self::Attribute(_, s) => s,
+            Self::TypeComment(_, s) => s,
+            Self::None(s) => s,
+            Self::Ellipsis(s) => s,
+            Self::True(s) => s,
+            Self::False(s) => s,
+            Self::FString(_, s) => s,
+            Self::ImportItems(_, s) => s,
+            Self::Parameters(_, s) => s,
+            Self::Arguments(_, s) => s,
+            Self::Invalid(s) => s,
         }
     }
 }
@@ -287,7 +297,7 @@ impl Locatable for Expression {
 impl Locatable for PyString {
     fn span(&self) -> Span {
         match self {
-            Self::Literal(_, s) => s.clone(),
+            Self::Literal(_, s) => *s,
             Self::FString(vs) => vs.span(),
         }
     }
@@ -296,7 +306,7 @@ impl Locatable for PyString {
 impl Locatable for FString {
     fn span(&self) -> Span {
         match self {
-            Self::Literal(_, s) => s.clone(),
+            Self::Literal(_, s) => *s,
             Self::Interpolated(fs) => fs.span(),
         }
     }
@@ -311,7 +321,7 @@ impl Locatable for FStringReplacement {
 impl Locatable for Arguments {
     fn span(&self) -> Span {
         if self.positional.is_empty() && self.keyword.is_empty() {
-            return Span::Indetermined
+            return Span::Indetermined;
         }
         if !self.positional.is_empty() {
             return self.positional.span().till_block(&self.keyword);
@@ -326,11 +336,11 @@ impl Locatable for Slice {
             Self::Simple(expr) => expr.span(),
             Self::Delimited(l, m, r) => {
                 if l.is_some() {
-                    l.clone().unwrap().span().or(&m).or(&r)
+                    l.as_ref().unwrap().span().or(&m).or(&r)
                 } else if m.is_some() {
-                    m.clone().unwrap().span().or(&r)
+                    m.as_ref().unwrap().span().or(&r)
                 } else if r.is_some() {
-                    r.clone().unwrap().span()
+                    r.as_ref().unwrap().span()
                 } else {
                     Span::Indetermined
                 }

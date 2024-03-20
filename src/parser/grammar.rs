@@ -54,6 +54,7 @@
 // #
 
 use std::cell::RefCell;
+use std::rc::Rc;
 
 use super::ast::*;
 use super::combinators::*;
@@ -106,7 +107,7 @@ fn interactive(input: ParserInput) -> ParseResult<Vec<Statement>> {
 }
 
 // eval: expressions NEWLINE* ENDMARKER
-fn eval(input: ParserInput) -> ParseResult<Vec<Expression>> {
+fn eval(input: ParserInput) -> ParseResult<Vec<Rc<Expression>>> {
     left(
         expressions,
         pair(zero_or_more(tok(TT::NEWLINE)), tok(TT::ENDMARKER)),
@@ -252,14 +253,9 @@ fn assignment(input: ParserInput) -> ParseResult<Statement> {
         maybe(right(tok(TT::EQUAL), annotated_rhs)),
     )
     .map(|((n, t), r)| {
-        let s = t.span().or(&r);
-        Statement::Assignment(
-            vec![Expression::Name(n.clone(), n.span)],
-            None,
-            r,
-            Some(Box::new(t)),
-            s,
-        )
+        let s = n.span().till(&t).or(&r);
+        let ns = n.span();
+        Statement::Assignment(vec![Rc::new(Expression::Name(n, ns))], None, r, Some(t), s)
     })
     .or(pair(
         pair(
@@ -271,7 +267,7 @@ fn assignment(input: ParserInput) -> ParseResult<Statement> {
     )
     .map(|((l, t), r)| {
         let s = t.span().or(&r);
-        Statement::Assignment(vec![l], None, r, Some(Box::new(t)), s)
+        Statement::Assignment(vec![l], None, r, Some(t), s)
     }))
     .or(pair(
         pair(
@@ -286,7 +282,7 @@ fn assignment(input: ParserInput) -> ParseResult<Statement> {
             l.concat(),
             None,
             Some(r),
-            t.map(|s| Box::new(Expression::TypeComment(s.lexeme, s.span))),
+            t.map(|s| Rc::new(Expression::TypeComment(Rc::from(s.lexeme), s.span))),
             s,
         )
     }))
@@ -294,7 +290,7 @@ fn assignment(input: ParserInput) -> ParseResult<Statement> {
         pair(single_target, augassign),
         yield_expr.map(|e| vec![e]).or(star_expressions),
     )
-    .map(|((l, o), r)| {
+    .map(|((l, ref o), r)| {
         let s = l.span().till(&r);
         Statement::Assignment(vec![l], Some(o.into()), Some(r), None, s)
     }))
@@ -303,7 +299,7 @@ fn assignment(input: ParserInput) -> ParseResult<Statement> {
 }
 
 // annotated_rhs: yield_expr | star_expressions
-fn annotated_rhs(input: ParserInput) -> ParseResult<Vec<Expression>> {
+fn annotated_rhs(input: ParserInput) -> ParseResult<Vec<Rc<Expression>>> {
     yield_expr
         .map(|e| vec![e])
         .or(star_expressions)
@@ -366,7 +362,7 @@ fn raise_stmt(input: ParserInput) -> ParseResult<Statement> {
     )
     .map(|(e, f)| {
         let s = e.span().or(&f);
-        Statement::Raise(Some(Box::new(e)), f.map(Box::new), s)
+        Statement::Raise(Some(e), f, s)
     })
     .or(token_nodiscard(TT::KEYWORD, "raise").map(|t| Statement::Raise(None, None, t.span)))
     .parse(input)
@@ -418,7 +414,7 @@ fn yield_stmt(input: ParserInput) -> ParseResult<Statement> {
     yield_expr
         .map(|e| {
             let s = e.span();
-            Statement::Yield(Box::new(e), s)
+            Statement::Yield(e, s)
         })
         .parse(input)
 }
@@ -431,7 +427,7 @@ fn assert_stmt(input: ParserInput) -> ParseResult<Statement> {
     )
     .map(|(t, (e, m))| {
         let s = t.span.till(&e).or(&m);
-        Statement::Assert(Box::new(e), m.map(Box::new), s)
+        Statement::Assert(e, m, s)
     })
     .parse(input)
 }
@@ -503,7 +499,7 @@ fn import_from(input: ParserInput) -> ParseResult<Statement> {
     )
     .map(|(n, t)| ((n, vec![]), t)))
     .map(|((rel_level, path), items)| {
-        let (items, span) = match items {
+        let (items, span) = match items.as_ref() {
             Expression::ImportItems(items, span) => (items, span),
             _ => return Statement::Invalid,
         };
@@ -514,9 +510,9 @@ fn import_from(input: ParserInput) -> ParseResult<Statement> {
                     path,
                     alias: None,
                 },
-                items,
+                items: items.clone(),
             }],
-            span,
+            span.clone(),
         )
     })
     .parse(input)
@@ -526,20 +522,20 @@ fn import_from(input: ParserInput) -> ParseResult<Statement> {
 //     | '(' import_from_as_names [','] ')'
 //     | import_from_as_names !','
 //     | '*'
-fn import_from_targets(input: ParserInput) -> ParseResult<Expression> {
+fn import_from_targets(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(
         right(tok(TT::LPAR), import_from_as_names),
         pair(maybe(tok(TT::COMMA)), tok(TT::RPAR)),
     )
     .or(left(import_from_as_names, not(tok(TT::COMMA))))
     .or(tok(TT::STAR).map(|a| {
-        Expression::ImportItems(
+        Rc::new(Expression::ImportItems(
             vec![ImportItem {
                 name: vec![],
                 alias: None,
             }],
             a.span(),
-        )
+        ))
     }))
     .or(on_error_pass(invalid_import_from_targets))
     .parse(input)
@@ -547,11 +543,11 @@ fn import_from_targets(input: ParserInput) -> ParseResult<Expression> {
 
 // import_from_as_names:
 //     | ','.import_from_as_name+
-fn import_from_as_names(input: ParserInput) -> ParseResult<Expression> {
+fn import_from_as_names(input: ParserInput) -> ParseResult<Rc<Expression>> {
     sep_by(import_from_as_name, TT::COMMA)
         .map(|ns| {
             let s = ns.span();
-            Expression::ImportItems(ns, s)
+            Rc::new(Expression::ImportItems(ns, s))
         })
         .parse(input)
 }
@@ -650,8 +646,8 @@ fn class_def_raw(input: ParserInput) -> ParseResult<Statement> {
         )
         .map(|((name, ts), (ancestors, body))| {
             let span = name.span().till_block(&body);
-            let ancestors = match ancestors {
-                Some(Expression::Arguments(args, _)) => args,
+            let ancestors = match ancestors.as_deref() {
+                Some(Expression::Arguments(args, _)) => args.clone(),
                 None => Arguments::empty(),
                 _ => return Statement::Invalid,
             };
@@ -709,8 +705,8 @@ fn function_def_raw(input: ParserInput) -> ParseResult<Statement> {
         )
         .map(|(a, ((n, p), b))| {
             let span = n.span().till_block(&b);
-            let parameters = match p {
-                Expression::Parameters(p, _) => p,
+            let parameters = match p.as_ref() {
+                Expression::Parameters(p, _) => p.clone(),
                 _ => return Statement::Invalid,
             };
             Statement::FunctionDeclaration(
@@ -735,11 +731,11 @@ fn name(input: ParserInput) -> ParseResult<Name> {
 
 // params:
 //     | parameters
-fn params(input: ParserInput) -> ParseResult<Expression> {
+fn params(input: ParserInput) -> ParseResult<Rc<Expression>> {
     on_error_pass(invalid_parameters)
         .or(parameters.map(|p| {
             let s = p.span();
-            Expression::Parameters(p, s)
+            Rc::new(Expression::Parameters(p, s))
         }))
         .parse(input)
 }
@@ -848,8 +844,8 @@ fn star_etc(input: ParserInput) -> ParseResult<Vec<Parameter>> {
         )
         .map(|(v, (mut u, w))| {
             u.push(v);
-            if let Some(Expression::Parameters(p, _)) = w {
-                u.extend(p)
+            if let Some(Expression::Parameters(p, _)) = w.as_deref() {
+                u.extend(p.clone())
             };
             u
         }))
@@ -859,8 +855,8 @@ fn star_etc(input: ParserInput) -> ParseResult<Vec<Parameter>> {
         )
         .map(|(v, (mut u, w))| {
             u.push(v);
-            if let Some(Expression::Parameters(p, _)) = w {
-                u.extend(p)
+            if let Some(Expression::Parameters(p, _)) = w.as_deref() {
+                u.extend(p.clone())
             };
             u
         }))
@@ -872,8 +868,8 @@ fn star_etc(input: ParserInput) -> ParseResult<Vec<Parameter>> {
             maybe(kwds),
         )
         .map(|(mut u, v)| {
-            if let Some(Expression::Parameters(p, _)) = v {
-                u.extend(p)
+            if let Some(Expression::Parameters(p, _)) = v.as_deref() {
+                u.extend(p.clone())
             };
             u
         }))
@@ -883,11 +879,11 @@ fn star_etc(input: ParserInput) -> ParseResult<Vec<Parameter>> {
 
 // kwds:
 //     | '**' param_no_default
-fn kwds(input: ParserInput) -> ParseResult<Expression> {
+fn kwds(input: ParserInput) -> ParseResult<Rc<Expression>> {
     on_error_pass(invalid_kwds)
         .or(right(tok(TT::DOUBLESTAR), param_no_default).map(|p| {
             let s = p.span();
-            Expression::Parameters(vec![p.kwargs()], s)
+            Rc::new(Expression::Parameters(vec![p.kwargs()], s))
         }))
         .parse(input)
 }
@@ -934,7 +930,7 @@ fn param_with_default(input: ParserInput) -> ParseResult<Parameter> {
     )
     .map(|((mut p, d), t)| {
         p.default = Some(d);
-        p.type_comment = t.map(|s| s.lexeme);
+        p.type_comment = t.map(|s| Rc::from(s.lexeme));
         p
     })
     .parse(input)
@@ -951,7 +947,7 @@ fn param_maybe_default(input: ParserInput) -> ParseResult<Parameter> {
     )
     .map(|((mut p, d), t)| {
         p.default = d;
-        p.type_comment = t.map(|s| s.lexeme);
+        p.type_comment = t.map(|s| Rc::from(s.lexeme));
         p
     })
     .parse(input)
@@ -972,17 +968,17 @@ fn param_star_annotation(input: ParserInput) -> ParseResult<Parameter> {
 }
 
 // annotation: ':' expression
-fn annotation(input: ParserInput) -> ParseResult<Expression> {
+fn annotation(input: ParserInput) -> ParseResult<Rc<Expression>> {
     right(tok(TT::COLON), expression).parse(input)
 }
 
 // star_annotation: ':' star_expression
-fn star_annotation(input: ParserInput) -> ParseResult<Expression> {
+fn star_annotation(input: ParserInput) -> ParseResult<Rc<Expression>> {
     right(tok(TT::COLON), star_expression).parse(input)
 }
 
 // default: '=' expression  | invalid_default
-fn default(input: ParserInput) -> ParseResult<Expression> {
+fn default(input: ParserInput) -> ParseResult<Rc<Expression>> {
     right(tok(TT::EQUAL), expression)
         .or(on_error_pass(invalid_default))
         .parse(input)
@@ -1015,7 +1011,10 @@ fn if_stmt(input: ParserInput) -> ParseResult<Statement> {
 //     | 'elif' named_expression ':' block [else_block]
 fn elif_stmt(
     input: ParserInput,
-) -> ParseResult<(Vec<(Expression, Vec<Statement>)>, Option<Vec<Statement>>)> {
+) -> ParseResult<(
+    Vec<(Rc<Expression>, Vec<Statement>)>,
+    Option<Vec<Statement>>,
+)> {
     on_error_pass(invalid_elif_stmt)
         .or(pair(
             one_or_more(pair(
@@ -1054,7 +1053,7 @@ fn while_stmt(input: ParserInput) -> ParseResult<Statement> {
         )
         .map(|((t, (e, b)), els)| {
             let s = t.span.till_block(&b).or(&els);
-            Statement::While(Box::new(e), b, els, s)
+            Statement::While(Rc::new(e), b, els, s)
         }))
         .parse(input)
 }
@@ -1087,7 +1086,7 @@ fn for_stmt(input: ParserInput) -> ParseResult<Statement> {
                 expr,
                 blck,
                 els,
-                tc.map(|s| Expression::TypeComment(s.lexeme, s.span)),
+                tc.map(|s| Rc::new(Expression::TypeComment(Rc::from(s.lexeme), s.span))),
                 a.is_some(),
                 span,
             )
@@ -1132,7 +1131,7 @@ fn with_stmt(input: ParserInput) -> ParseResult<Statement> {
             Statement::With(
                 w,
                 b,
-                t.map(|s| Expression::TypeComment(s.lexeme, s.span)),
+                t.map(|s| Rc::new(Expression::TypeComment(Rc::from(s.lexeme), s.span))),
                 a.is_some(),
                 s,
             )
@@ -1143,7 +1142,7 @@ fn with_stmt(input: ParserInput) -> ParseResult<Statement> {
 
 // with_item:
 //     | expression ['as' star_target &(',' | ')' | ':')]
-fn with_item(input: ParserInput) -> ParseResult<Expression> {
+fn with_item(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         expression,
         maybe(left(
@@ -1153,7 +1152,7 @@ fn with_item(input: ParserInput) -> ParseResult<Expression> {
     )
     .map(|(e, t)| {
         let s = e.span().till(&e).or(&t);
-        Expression::WithItem(Box::new(e), t.map(Box::new), s)
+        Rc::new(Expression::WithItem(e, t, s))
     })
     .or(on_error_pass(invalid_with_item))
     .parse(input)
@@ -1207,7 +1206,7 @@ fn try_stmt(input: ParserInput) -> ParseResult<Statement> {
 // except_block:
 //     | 'except' expression ['as' NAME ] ':' block
 //     | 'except' ':' block
-fn except_block(input: ParserInput) -> ParseResult<Expression> {
+fn except_block(input: ParserInput) -> ParseResult<Rc<Expression>> {
     on_error_pass(invalid_except_stmt_indent)
         .or(pair(
             pair(
@@ -1218,7 +1217,7 @@ fn except_block(input: ParserInput) -> ParseResult<Expression> {
         )
         .map(|((t, (e, a)), b)| {
             let s = t.span.till_block(&b);
-            Expression::ExceptBlock(Some(Box::new(e)), a, b, false, s)
+            Rc::new(Expression::ExceptBlock(Some(e), a, b, false, s))
         }))
         .or(pair(
             left(token_nodiscard(TT::KEYWORD, "except"), tok(TT::COLON)),
@@ -1226,7 +1225,7 @@ fn except_block(input: ParserInput) -> ParseResult<Expression> {
         )
         .map(|(t, b)| {
             let s = t.span.till_block(&b);
-            Expression::ExceptBlock(None, None, b, false, s)
+            Rc::new(Expression::ExceptBlock(None, None, b, false, s))
         }))
         .or(on_error_pass(invalid_except_stmt))
         .parse(input)
@@ -1234,7 +1233,7 @@ fn except_block(input: ParserInput) -> ParseResult<Expression> {
 
 // except_star_block:
 //     | 'except' '*' expression ['as' NAME ] ':' block
-fn except_star_block(input: ParserInput) -> ParseResult<Expression> {
+fn except_star_block(input: ParserInput) -> ParseResult<Rc<Expression>> {
     on_error_pass(invalid_except_star_stmt_indent)
         .or(pair(
             pair(
@@ -1245,7 +1244,7 @@ fn except_star_block(input: ParserInput) -> ParseResult<Expression> {
         )
         .map(|((t, (e, a)), b)| {
             let s = t.span.till_block(&b);
-            Expression::ExceptBlock(Some(Box::new(e)), a, b, true, s)
+            Rc::new(Expression::ExceptBlock(Some(e), a, b, true, s))
         }))
         .or(on_error_pass(invalid_except_stmt))
         .parse(input)
@@ -1286,7 +1285,7 @@ fn match_stmt(input: ParserInput) -> ParseResult<Statement> {
 // subject_expr:
 //     | star_named_expression ',' star_named_expressions?
 //     | named_expression
-fn subject_expr(input: ParserInput) -> ParseResult<Vec<Expression>> {
+fn subject_expr(input: ParserInput) -> ParseResult<Vec<Rc<Expression>>> {
     pair(
         left(star_named_expression, tok(TT::COMMA)),
         maybe(star_named_expressions),
@@ -1302,7 +1301,7 @@ fn subject_expr(input: ParserInput) -> ParseResult<Vec<Expression>> {
 
 // case_block:
 //     | "case" patterns guard? ':' block
-fn case_block(input: ParserInput) -> ParseResult<Expression> {
+fn case_block(input: ParserInput) -> ParseResult<Rc<Expression>> {
     on_error_pass(invalid_case_block)
         .or(pair(
             pair(token_nodiscard(TT::NAME, "case"), patterns),
@@ -1310,13 +1309,13 @@ fn case_block(input: ParserInput) -> ParseResult<Expression> {
         )
         .map(|((t, p), (g, b))| {
             let s = t.span.till_block(&b);
-            Expression::Case(p, g.map(Box::new), b, s)
+            Rc::new(Expression::Case(p, g, b, s))
         }))
         .parse(input)
 }
 
 // guard: 'if' named_expression
-fn guard(input: ParserInput) -> ParseResult<Expression> {
+fn guard(input: ParserInput) -> ParseResult<Rc<Expression>> {
     right(token(TT::KEYWORD, "if"), named_expression).parse(input)
 }
 
@@ -1343,7 +1342,7 @@ fn as_pattern(input: ParserInput) -> ParseResult<Pattern> {
         left(or_pattern, token(TT::KEYWORD, "as")),
         pattern_capture_target,
     )
-    .map(|(p, t)| Pattern::Capture(Some(Box::new(p)), t))
+    .map(|(p, t)| Pattern::Capture(Some(Rc::new(p)), t))
     .or(on_error_pass(invalid_as_pattern))
     .parse(input)
 }
@@ -1388,9 +1387,9 @@ fn closed_pattern(input: ParserInput) -> ParseResult<Pattern> {
 fn literal_pattern(input: ParserInput) -> ParseResult<Pattern> {
     number
         .or(strings)
-        .or(token_nodiscard(TT::KEYWORD, "None").map(|t| Expression::None(t.span)))
-        .or(token_nodiscard(TT::KEYWORD, "True").map(|t| Expression::True(t.span)))
-        .or(token_nodiscard(TT::KEYWORD, "False").map(|t| Expression::False(t.span)))
+        .or(token_nodiscard(TT::KEYWORD, "None").map(|t| Rc::new(Expression::None(t.span))))
+        .or(token_nodiscard(TT::KEYWORD, "True").map(|t| Rc::new(Expression::True(t.span))))
+        .or(token_nodiscard(TT::KEYWORD, "False").map(|t| Rc::new(Expression::False(t.span))))
         .map(Pattern::Literal)
         .parse(input)
 }
@@ -1407,7 +1406,7 @@ fn literal_expr(input: ParserInput) -> ParseResult<Expression> {
     literal_pattern
         .map(|p| {
             let s = p.span();
-            Expression::Pattern(Box::new(p), s)
+            Expression::Pattern(Rc::new(p), s)
         })
         .parse(input)
 }
@@ -1475,7 +1474,7 @@ fn name_or_attr(input: ParserInput) -> ParseResult<Expression> {
 //     | '(' pattern ')'
 fn group_pattern(input: ParserInput) -> ParseResult<Pattern> {
     right(tok(TT::LPAR), left(pattern, tok(TT::RPAR)))
-        .map(|p| Pattern::Group(Box::new(p)))
+        .map(|p| Pattern::Group(Rc::new(p)))
         .parse(input)
 }
 
@@ -1534,7 +1533,7 @@ fn star_pattern(input: ParserInput) -> ParseResult<Pattern> {
             .map(|n| Pattern::Capture(None, n))
             .or(wildcard_pattern),
     )
-    .map(|p| Pattern::Star(Box::new(p)))
+    .map(|p| Pattern::Star(Rc::new(p)))
     .parse(input)
 }
 
@@ -1580,7 +1579,7 @@ fn items_pattern(input: ParserInput) -> ParseResult<Vec<Pattern>> {
 //     | (literal_expr | attr) ':' pattern
 fn key_value_pattern(input: ParserInput) -> ParseResult<Pattern> {
     pair(left(literal_expr.or(attr), tok(TT::COLON)), pattern)
-        .map(|(e, p)| Pattern::KeyValue(Box::new(e), Box::new(p)))
+        .map(|(e, p)| Pattern::KeyValue(Rc::new(e), Rc::new(p)))
         .parse(input)
 }
 
@@ -1625,7 +1624,7 @@ fn class_pattern(input: ParserInput) -> ParseResult<Pattern> {
                 pos
             })),
     )
-    .map(|(n, ps)| Pattern::Class(Box::new(n), ps))
+    .map(|(n, ps)| Pattern::Class(Rc::new(n), ps))
     .or(on_error_pass(invalid_class_pattern))
     .parse(input)
 }
@@ -1648,7 +1647,7 @@ fn keyword_pattern(input: ParserInput) -> ParseResult<Pattern> {
     pair(left(name, tok(TT::EQUAL)), pattern)
         .map(|(n, p)| {
             let s = n.span.till(&p);
-            Pattern::KeyValue(Box::new(Expression::Name(n, s)), Box::new(p))
+            Pattern::KeyValue(Rc::new(Expression::Name(n, s)), Rc::new(p))
         })
         .parse(input)
 }
@@ -1666,7 +1665,7 @@ fn type_alias(input: ParserInput) -> ParseResult<Statement> {
     )
     .map(|((tt, n), (t, e))| {
         let s = tt.span.till(&e);
-        Statement::Type(n, t.unwrap_or_default(), Box::new(e), s)
+        Statement::Type(n, t.unwrap_or_default(), e, s)
     })
     .parse(input)
 }
@@ -1675,12 +1674,12 @@ fn type_alias(input: ParserInput) -> ParseResult<Statement> {
 // # --------------------------
 
 // type_params: '[' type_param_seq  ']'
-fn type_params(input: ParserInput) -> ParseResult<Vec<Expression>> {
+fn type_params(input: ParserInput) -> ParseResult<Vec<Rc<Expression>>> {
     left(right(tok(TT::LSQB), type_param_seq), tok(TT::RSQB)).parse(input)
 }
 
 // type_param_seq: ','.type_param+ [',']
-fn type_param_seq(input: ParserInput) -> ParseResult<Vec<Expression>> {
+fn type_param_seq(input: ParserInput) -> ParseResult<Vec<Rc<Expression>>> {
     left(sep_by(type_param, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
@@ -1690,11 +1689,11 @@ fn type_param_seq(input: ParserInput) -> ParseResult<Vec<Expression>> {
 //     | '*' NAME
 //     | '**' NAME ':' expression
 //     | '**' NAME
-fn type_param(input: ParserInput) -> ParseResult<Expression> {
+fn type_param(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(name, maybe(type_param_bound))
         .map(|(name, type_bound)| {
             let span = name.span.or(&type_bound);
-            Expression::TypeBound(
+            Rc::new(Expression::TypeBound(
                 TypeBound {
                     name,
                     type_bound,
@@ -1702,7 +1701,7 @@ fn type_param(input: ParserInput) -> ParseResult<Expression> {
                     double_starred: false,
                 },
                 span,
-            )
+            ))
         })
         .or(pair(
             right(tok(TT::STAR), name),
@@ -1710,19 +1709,19 @@ fn type_param(input: ParserInput) -> ParseResult<Expression> {
         )
         .map(|(name, t)| {
             let span = name.span.till(&t);
-            Expression::TypeBound(
+            Rc::new(Expression::TypeBound(
                 TypeBound {
                     name,
-                    type_bound: Some(Box::new(t)),
+                    type_bound: Some(t),
                     starred: true,
                     double_starred: false,
                 },
                 span,
-            )
+            ))
         }))
         .or(right(tok(TT::STAR), name).map(|name| {
-            let span = name.span.clone();
-            Expression::TypeBound(
+            let span = name.span;
+            Rc::new(Expression::TypeBound(
                 TypeBound {
                     name,
                     type_bound: None,
@@ -1730,7 +1729,7 @@ fn type_param(input: ParserInput) -> ParseResult<Expression> {
                     double_starred: false,
                 },
                 span,
-            )
+            ))
         }))
         .or(pair(
             right(tok(TT::DOUBLESTAR), name),
@@ -1738,19 +1737,19 @@ fn type_param(input: ParserInput) -> ParseResult<Expression> {
         )
         .map(|(name, t)| {
             let span = name.span.till(&t);
-            Expression::TypeBound(
+            Rc::new(Expression::TypeBound(
                 TypeBound {
                     name,
-                    type_bound: Some(Box::new(t)),
+                    type_bound: Some(t),
                     starred: false,
                     double_starred: true,
                 },
                 span,
-            )
+            ))
         }))
         .or(right(tok(TT::DOUBLESTAR), name).map(|name| {
-            let span = name.span.clone();
-            Expression::TypeBound(
+            let span = name.span;
+            Rc::new(Expression::TypeBound(
                 TypeBound {
                     name,
                     type_bound: None,
@@ -1758,14 +1757,14 @@ fn type_param(input: ParserInput) -> ParseResult<Expression> {
                     double_starred: true,
                 },
                 span,
-            )
+            ))
         }))
         .parse(input)
 }
 
 // type_param_bound: ':' expression
-fn type_param_bound(input: ParserInput) -> ParseResult<Box<Expression>> {
-    right(tok(TT::COLON), expression).map(Box::new).parse(input)
+fn type_param_bound(input: ParserInput) -> ParseResult<Rc<Expression>> {
+    right(tok(TT::COLON), expression).parse(input)
 }
 
 // # EXPRESSIONS
@@ -1775,7 +1774,7 @@ fn type_param_bound(input: ParserInput) -> ParseResult<Box<Expression>> {
 //     | expression (',' expression )+ [',']
 //     | expression ','
 //     | expression
-fn expressions(input: ParserInput) -> ParseResult<Vec<Expression>> {
+fn expressions(input: ParserInput) -> ParseResult<Vec<Rc<Expression>>> {
     left(sep_by(expression, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
@@ -1783,7 +1782,7 @@ fn expressions(input: ParserInput) -> ParseResult<Vec<Expression>> {
 //     | disjunction 'if' disjunction 'else' expression
 //     | disjunction
 //     | lambdef
-fn expression(input: ParserInput) -> ParseResult<Expression> {
+fn expression(input: ParserInput) -> ParseResult<Rc<Expression>> {
     if let Some(result) = try_remember(input, expression) {
         return result;
     }
@@ -1798,7 +1797,7 @@ fn expression(input: ParserInput) -> ParseResult<Expression> {
         .map(|(t, o)| match o {
             Some((c, e)) => {
                 let s = t.span().till(&e);
-                Expression::Ternary(Box::new(c), Box::new(t), Box::new(e), s)
+                Rc::new(Expression::Ternary(c, t, e, s))
             }
             None => t,
         }))
@@ -1811,7 +1810,7 @@ fn expression(input: ParserInput) -> ParseResult<Expression> {
 // yield_expr:
 //     | 'yield' 'from' expression
 //     | 'yield' [star_expressions]
-fn yield_expr(input: ParserInput) -> ParseResult<Expression> {
+fn yield_expr(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         left(
             token_nodiscard(TT::KEYWORD, "yield"),
@@ -1821,7 +1820,7 @@ fn yield_expr(input: ParserInput) -> ParseResult<Expression> {
     )
     .map(|(t, e)| {
         let s = t.span.till(&e);
-        Expression::YieldFrom(Box::new(e), s)
+        Rc::new(Expression::YieldFrom(e, s))
     })
     .or(pair(
         token_nodiscard(TT::KEYWORD, "yield"),
@@ -1829,7 +1828,7 @@ fn yield_expr(input: ParserInput) -> ParseResult<Expression> {
     )
     .map(|(t, e)| {
         let s = t.span.till(&e);
-        Expression::Yield(e, s)
+        Rc::new(Expression::Yield(e, s))
     }))
     .parse(input)
 }
@@ -1838,21 +1837,21 @@ fn yield_expr(input: ParserInput) -> ParseResult<Expression> {
 //     | star_expression (',' star_expression )+ [',']
 //     | star_expression ','
 //     | star_expression
-fn star_expressions(input: ParserInput) -> ParseResult<Vec<Expression>> {
+fn star_expressions(input: ParserInput) -> ParseResult<Vec<Rc<Expression>>> {
     left(sep_by(star_expression, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
 // star_expression:
 //     | '*' bitwise_or
 //     | expression
-fn star_expression(input: ParserInput) -> ParseResult<Expression> {
+fn star_expression(input: ParserInput) -> ParseResult<Rc<Expression>> {
     if let Some(result) = try_remember(input, star_expression) {
         return result;
     }
     let result = pair(tok(TT::STAR), bitwise_or)
         .map(|(t, e)| {
             let s = t.span.till(&e);
-            Expression::ListUnwrap(Box::new(e), s)
+            Rc::new(Expression::ListUnwrap(e, s))
         })
         .or(expression)
         .parse(input);
@@ -1861,7 +1860,7 @@ fn star_expression(input: ParserInput) -> ParseResult<Expression> {
 }
 
 // star_named_expressions: ','.star_named_expression+ [',']
-fn star_named_expressions(input: ParserInput) -> ParseResult<Vec<Expression>> {
+fn star_named_expressions(input: ParserInput) -> ParseResult<Vec<Rc<Expression>>> {
     left(
         sep_by(star_named_expression, TT::COMMA),
         maybe(tok(TT::COMMA)),
@@ -1872,7 +1871,7 @@ fn star_named_expressions(input: ParserInput) -> ParseResult<Vec<Expression>> {
 // star_named_expression:
 //     | '*' bitwise_or
 //     | named_expression
-fn star_named_expression(input: ParserInput) -> ParseResult<Expression> {
+fn star_named_expression(input: ParserInput) -> ParseResult<Rc<Expression>> {
     right(tok(TT::STAR), bitwise_or)
         .or(named_expression)
         .parse(input)
@@ -1880,12 +1879,12 @@ fn star_named_expression(input: ParserInput) -> ParseResult<Expression> {
 
 // assignment_expression:
 //     | NAME ':=' ~ expression
-fn assignment_expression(input: ParserInput) -> ParseResult<Expression> {
+fn assignment_expression(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         left(
             name.map(|n| {
-                let s = n.span.clone();
-                Expression::Name(n, s)
+                let s = n.span;
+                Rc::new(Expression::Name(n, s))
             }),
             tok(TT::COLONEQUAL),
         ),
@@ -1893,7 +1892,7 @@ fn assignment_expression(input: ParserInput) -> ParseResult<Expression> {
     )
     .map(|(l, r)| {
         let s = l.span().till(&r);
-        Expression::Walrus(Box::new(l), Box::new(r), s)
+        Rc::new(Expression::Walrus(l, r, s))
     })
     .parse(input)
 }
@@ -1901,7 +1900,7 @@ fn assignment_expression(input: ParserInput) -> ParseResult<Expression> {
 // named_expression:
 //     | assignment_expression
 //     | expression !':='
-fn named_expression(input: ParserInput) -> ParseResult<Expression> {
+fn named_expression(input: ParserInput) -> ParseResult<Rc<Expression>> {
     assignment_expression
         .or(on_error_pass(invalid_named_expression))
         .or(left(expression, not(tok(TT::COLONEQUAL))))
@@ -1911,14 +1910,14 @@ fn named_expression(input: ParserInput) -> ParseResult<Expression> {
 // disjunction:
 //     | conjunction ('or' conjunction )+
 //     | conjunction
-fn disjunction(input: ParserInput) -> ParseResult<Expression> {
+fn disjunction(input: ParserInput) -> ParseResult<Rc<Expression>> {
     if let Some(result) = try_remember(input, disjunction) {
         return result;
     }
     let result = pair(conjunction, right(token(TT::KEYWORD, "or"), conjunction))
         .map(|(l, r)| {
             let s = l.span().till(&r);
-            Expression::BinaryOperation(Operator::Or, Box::new((l, r)), s)
+            Rc::new(Expression::BinaryOperation(Operator::Or, l, r, s))
         })
         .or(conjunction)
         .parse(input);
@@ -1929,14 +1928,14 @@ fn disjunction(input: ParserInput) -> ParseResult<Expression> {
 // conjunction:
 //     | inversion ('and' inversion )+
 //     | inversion
-fn conjunction(input: ParserInput) -> ParseResult<Expression> {
+fn conjunction(input: ParserInput) -> ParseResult<Rc<Expression>> {
     if let Some(result) = try_remember(input, conjunction) {
         return result;
     }
     let result = pair(inversion, right(token(TT::KEYWORD, "and"), inversion))
         .map(|(l, r)| {
             let s = l.span().till(&r);
-            Expression::BinaryOperation(Operator::And, Box::new((l, r)), s)
+            Rc::new(Expression::BinaryOperation(Operator::And, l, r, s))
         })
         .or(inversion)
         .parse(input);
@@ -1947,14 +1946,14 @@ fn conjunction(input: ParserInput) -> ParseResult<Expression> {
 // inversion:
 //     | 'not' inversion
 //     | comparison
-fn inversion(input: ParserInput) -> ParseResult<Expression> {
+fn inversion(input: ParserInput) -> ParseResult<Rc<Expression>> {
     if let Some(result) = try_remember(input, inversion) {
         return result;
     }
     let result = pair(token_nodiscard(TT::KEYWORD, "not"), inversion)
         .map(|(t, i)| {
             let s = t.span.till(&i);
-            Expression::UnaryOperation(Operator::Not, Box::new(i), s)
+            Rc::new(Expression::UnaryOperation(Operator::Not, i, s))
         })
         .or(comparison)
         .parse(input);
@@ -1968,7 +1967,7 @@ fn inversion(input: ParserInput) -> ParseResult<Expression> {
 // comparison:
 //     | bitwise_or compare_op_bitwise_or_pair+
 //     | bitwise_or
-fn comparison(input: ParserInput) -> ParseResult<Expression> {
+fn comparison(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(bitwise_or, zero_or_more(compare_op_bitwise_or_pair))
         .map(|(l, r)| {
             if r.is_empty() {
@@ -1976,7 +1975,7 @@ fn comparison(input: ParserInput) -> ParseResult<Expression> {
             } else {
                 let end = &r.last().unwrap().1;
                 let s = l.span().till(end);
-                Expression::Comparison(Box::new(l), r, s)
+                Rc::new(Expression::Comparison(l, r, s))
             }
         })
         .parse(input)
@@ -1993,7 +1992,7 @@ fn comparison(input: ParserInput) -> ParseResult<Expression> {
 //     | in_bitwise_or
 //     | isnot_bitwise_or
 //     | is_bitwise_or
-fn compare_op_bitwise_or_pair(input: ParserInput) -> ParseResult<(Operator, Expression)> {
+fn compare_op_bitwise_or_pair(input: ParserInput) -> ParseResult<(Operator, Rc<Expression>)> {
     eq_bitwise_or
         .or(noteq_bitwise_or)
         .or(lte_bitwise_or)
@@ -2008,38 +2007,38 @@ fn compare_op_bitwise_or_pair(input: ParserInput) -> ParseResult<(Operator, Expr
 }
 
 // eq_bitwise_or: '==' bitwise_or
-fn eq_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
+fn eq_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Rc<Expression>)> {
     pair(tok(TT::EQEQUAL).map(Operator::from), bitwise_or).parse(input)
 }
 
 // noteq_bitwise_or:
 //     | ('!=' ) bitwise_or
-fn noteq_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
+fn noteq_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Rc<Expression>)> {
     pair(tok(TT::NOTEQUAL).map(Operator::from), bitwise_or).parse(input)
 }
 
 // lte_bitwise_or: '<=' bitwise_or
-fn lte_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
+fn lte_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Rc<Expression>)> {
     pair(tok(TT::LESSEQUAL).map(Operator::from), bitwise_or).parse(input)
 }
 
 // lt_bitwise_or: '<' bitwise_or
-fn lt_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
+fn lt_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Rc<Expression>)> {
     pair(tok(TT::LESS).map(Operator::from), bitwise_or).parse(input)
 }
 
 // gte_bitwise_or: '>=' bitwise_or
-fn gte_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
+fn gte_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Rc<Expression>)> {
     pair(tok(TT::GREATEREQUAL).map(Operator::from), bitwise_or).parse(input)
 }
 
 // gt_bitwise_or: '>' bitwise_or
-fn gt_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
+fn gt_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Rc<Expression>)> {
     pair(tok(TT::GREATER).map(Operator::from), bitwise_or).parse(input)
 }
 
 // notin_bitwise_or: 'not' 'in' bitwise_or
-fn notin_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
+fn notin_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Rc<Expression>)> {
     right(
         pair(token(TT::KEYWORD, "not"), token(TT::KEYWORD, "in")),
         bitwise_or,
@@ -2049,14 +2048,14 @@ fn notin_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
 }
 
 // in_bitwise_or: 'in' bitwise_or
-fn in_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
+fn in_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Rc<Expression>)> {
     right(token(TT::KEYWORD, "in"), bitwise_or)
         .map(|e| (Operator::In, e))
         .parse(input)
 }
 
 // isnot_bitwise_or: 'is' 'not' bitwise_or
-fn isnot_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
+fn isnot_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Rc<Expression>)> {
     right(
         pair(token(TT::KEYWORD, "is"), token(TT::KEYWORD, "not")),
         bitwise_or,
@@ -2066,7 +2065,7 @@ fn isnot_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
 }
 
 // is_bitwise_or: 'is' bitwise_or
-fn is_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Expression)> {
+fn is_bitwise_or(input: ParserInput) -> ParseResult<(Operator, Rc<Expression>)> {
     right(token(TT::KEYWORD, "is"), bitwise_or)
         .map(|e| (Operator::Is, e))
         .parse(input)
@@ -2089,7 +2088,7 @@ fn bitwise_or_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
 
 // bitwise_or:
 //     | bitwise_xor bitwise_or_tail
-fn bitwise_or(input: ParserInput) -> ParseResult<Expression> {
+fn bitwise_or(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(bitwise_xor, bitwise_or_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
@@ -2102,16 +2101,17 @@ fn bitwise_or(input: ParserInput) -> ParseResult<Expression> {
                     IncompleteExpression::BinaryOperation(_, expr, tail) => {
                         let s = expr.span().till(&current_expr);
                         (
-                            Expression::BinaryOperation(
+                            Rc::new(Expression::BinaryOperation(
                                 Operator::BitwiseOr,
-                                Box::new((current_expr, *expr)),
+                                current_expr,
+                                *expr,
                                 s,
-                            ),
+                            )),
                             tail,
                         )
                     }
                     IncompleteExpression::Invalid => (
-                        Expression::Invalid(current_expr.span()),
+                        Rc::new(Expression::Invalid(current_expr.span())),
                         Box::new(IncompleteExpression::Empty),
                     ),
                     _ => unreachable!(),
@@ -2136,7 +2136,7 @@ fn bitwise_xor_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
 
 // bitwise_xor:
 //     | bitwise_and bitwise_xor_tail
-fn bitwise_xor(input: ParserInput) -> ParseResult<Expression> {
+fn bitwise_xor(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(bitwise_and, bitwise_xor_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
@@ -2149,16 +2149,17 @@ fn bitwise_xor(input: ParserInput) -> ParseResult<Expression> {
                     IncompleteExpression::BinaryOperation(_, expr, tail) => {
                         let s = expr.span().till(&current_expr);
                         (
-                            Expression::BinaryOperation(
+                            Rc::new(Expression::BinaryOperation(
                                 Operator::BitwiseXor,
-                                Box::new((current_expr, *expr)),
+                                current_expr,
+                                *expr,
                                 s,
-                            ),
+                            )),
                             tail,
                         )
                     }
                     IncompleteExpression::Invalid => (
-                        Expression::Invalid(current_expr.span()),
+                        Rc::new(Expression::Invalid(current_expr.span())),
                         Box::new(IncompleteExpression::Empty),
                     ),
                     _ => unreachable!(),
@@ -2183,7 +2184,7 @@ fn bitwise_and_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
 
 // bitwise_and:
 //     | shift_expr bitwise_and_tail
-fn bitwise_and(input: ParserInput) -> ParseResult<Expression> {
+fn bitwise_and(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(shift_expr, bitwise_and_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
@@ -2196,16 +2197,17 @@ fn bitwise_and(input: ParserInput) -> ParseResult<Expression> {
                     IncompleteExpression::BinaryOperation(_, expr, tail) => {
                         let s = expr.span().till(&current_expr);
                         (
-                            Expression::BinaryOperation(
+                            Rc::new(Expression::BinaryOperation(
                                 Operator::BitwiseAnd,
-                                Box::new((current_expr, *expr)),
+                                current_expr,
+                                *expr,
                                 s,
-                            ),
+                            )),
                             tail,
                         )
                     }
                     IncompleteExpression::Invalid => (
-                        Expression::Invalid(current_expr.span()),
+                        Rc::new(Expression::Invalid(current_expr.span())),
                         Box::new(IncompleteExpression::Empty),
                     ),
                     _ => unreachable!(),
@@ -2232,7 +2234,7 @@ fn shift_expr_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
 
 // shift_expr:
 //     | sum shift_expr_tail
-fn shift_expr(input: ParserInput) -> ParseResult<Expression> {
+fn shift_expr(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(sum, shift_expr_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
@@ -2245,12 +2247,12 @@ fn shift_expr(input: ParserInput) -> ParseResult<Expression> {
                     IncompleteExpression::BinaryOperation(op, expr, tail) => {
                         let s = expr.span().till(&current_expr);
                         (
-                            Expression::BinaryOperation(op, Box::new((current_expr, *expr)), s),
+                            Rc::new(Expression::BinaryOperation(op, current_expr, *expr, s)),
                             tail,
                         )
                     }
                     IncompleteExpression::Invalid => (
-                        Expression::Invalid(current_expr.span()),
+                        Rc::new(Expression::Invalid(current_expr.span())),
                         Box::new(IncompleteExpression::Empty),
                     ),
                     _ => unreachable!(),
@@ -2279,7 +2281,7 @@ fn sum_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
 
 // sum:
 //     | term sum_tail
-fn sum(input: ParserInput) -> ParseResult<Expression> {
+fn sum(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(term, sum_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
@@ -2292,12 +2294,12 @@ fn sum(input: ParserInput) -> ParseResult<Expression> {
                     IncompleteExpression::BinaryOperation(op, expr, tail) => {
                         let s = expr.span().till(&current_expr);
                         (
-                            Expression::BinaryOperation(op, Box::new((current_expr, *expr)), s),
+                            Rc::new(Expression::BinaryOperation(op, current_expr, *expr, s)),
                             tail,
                         )
                     }
                     IncompleteExpression::Invalid => (
-                        Expression::Invalid(current_expr.span()),
+                        Rc::new(Expression::Invalid(current_expr.span())),
                         Box::new(IncompleteExpression::Empty),
                     ),
                     _ => unreachable!(),
@@ -2331,7 +2333,7 @@ fn term_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
 
 // term:
 //     | factor term_tail
-fn term(input: ParserInput) -> ParseResult<Expression> {
+fn term(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(factor, term_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
@@ -2344,12 +2346,12 @@ fn term(input: ParserInput) -> ParseResult<Expression> {
                     IncompleteExpression::BinaryOperation(op, expr, tail) => {
                         let s = expr.span().till(&current_expr);
                         (
-                            Expression::BinaryOperation(op, Box::new((current_expr, *expr)), s),
+                            Rc::new(Expression::BinaryOperation(op, current_expr, *expr, s)),
                             tail,
                         )
                     }
                     IncompleteExpression::Invalid => (
-                        Expression::Invalid(current_expr.span()),
+                        Rc::new(Expression::Invalid(current_expr.span())),
                         Box::new(IncompleteExpression::Empty),
                     ),
                     _ => unreachable!(),
@@ -2365,18 +2367,18 @@ fn term(input: ParserInput) -> ParseResult<Expression> {
 //     | '-' factor
 //     | '~' factor
 //     | power
-fn factor(input: ParserInput) -> ParseResult<Expression> {
+fn factor(input: ParserInput) -> ParseResult<Rc<Expression>> {
     if let Some(result) = try_remember(input, factor) {
         return result;
     }
     let result = power
         .or(
-            pair(tok(TT::PLUS).or(tok(TT::MINUS)).or(tok(TT::TILDE)), factor).map(|(o, e)| {
-                let op = o.clone().into();
+            pair(tok(TT::PLUS).or(tok(TT::MINUS)).or(tok(TT::TILDE)), factor).map(|(ref o, e)| {
+                let op = o.into();
                 match op {
                     Operator::Minus | Operator::BitwiseNot => {
                         let s = o.span.till(&e);
-                        Expression::UnaryOperation(op, Box::new(e), s)
+                        Rc::new(Expression::UnaryOperation(op, e, s))
                     }
                     _ => e,
                 }
@@ -2389,12 +2391,12 @@ fn factor(input: ParserInput) -> ParseResult<Expression> {
 
 // power:
 //     | await_primary ['**' factor]
-fn power(input: ParserInput) -> ParseResult<Expression> {
+fn power(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(await_primary, maybe(pair(tok(TT::DOUBLESTAR), factor)))
         .map(|(l, exp)| match exp {
             Some((o, r)) => {
                 let s = l.span().till(&r);
-                Expression::BinaryOperation(o.into(), Box::new((l, r)), s)
+                Rc::new(Expression::BinaryOperation(o.into(), l, r, s))
             }
             None => l,
         })
@@ -2409,7 +2411,7 @@ fn power(input: ParserInput) -> ParseResult<Expression> {
 // await_primary:
 //     | AWAIT primary
 //     | primary
-fn await_primary(input: ParserInput) -> ParseResult<Expression> {
+fn await_primary(input: ParserInput) -> ParseResult<Rc<Expression>> {
     if let Some(result) = try_remember(input, await_primary) {
         return result;
     }
@@ -2422,7 +2424,7 @@ fn await_primary(input: ParserInput) -> ParseResult<Expression> {
 
 // primary:
 //   | atom primary_tail
-fn primary(input: ParserInput) -> ParseResult<Expression> {
+fn primary(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(atom, primary_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
@@ -2434,25 +2436,25 @@ fn primary(input: ParserInput) -> ParseResult<Expression> {
                     }
                     IncompleteExpression::Call(args, tail) => {
                         let s = current_expr.span().till(&args);
-                        (Expression::Call(Box::new(current_expr), args, s), tail)
+                        (Rc::new(Expression::Call(current_expr, args, s)), tail)
                     }
                     IncompleteExpression::Slice(slice, tail) => {
                         let s = current_expr.span().till(&slice);
-                        (Expression::Slice(Box::new(current_expr), slice, s), tail)
+                        (Rc::new(Expression::Slice(current_expr, slice, s)), tail)
                     }
                     IncompleteExpression::Subscript(name, tail) => {
                         let s = current_expr.span().till(&name);
-                        (Expression::Subscript(Box::new(current_expr), name, s), tail)
+                        (Rc::new(Expression::Subscript(current_expr, name, s)), tail)
                     }
                     IncompleteExpression::PrimaryGenexp(genexp, tail) => {
                         let s = current_expr.span().till(&genexp);
                         (
-                            Expression::PrimaryGenexp(Box::new(current_expr), genexp, s),
+                            Rc::new(Expression::PrimaryGenexp(current_expr, *genexp, s)),
                             tail,
                         )
                     }
                     IncompleteExpression::Invalid => (
-                        Expression::Invalid(current_expr.span()),
+                        Rc::new(Expression::Invalid(current_expr.span())),
                         Box::new(IncompleteExpression::Empty),
                     ),
                     _ => unreachable!(),
@@ -2477,8 +2479,8 @@ fn primary_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
             primary_tail,
         )
         .map(|(a, tail)| {
-            let args = match a {
-                Some(Expression::Arguments(args, _)) => args,
+            let args = match a.as_deref() {
+                Some(Expression::Arguments(args, _)) => args.clone(),
                 None => Arguments::empty(),
                 _ => return IncompleteExpression::Invalid,
             };
@@ -2532,35 +2534,35 @@ fn slice(input: ParserInput) -> ParseResult<Slice> {
 //     | (list | listcomp)
 //     | (dict | set | dictcomp | setcomp)
 //     | '...'
-fn atom(input: ParserInput) -> ParseResult<Expression> {
+fn atom(input: ParserInput) -> ParseResult<Rc<Expression>> {
     name.map(|n| {
         let s = n.span();
-        Expression::Name(n, s)
+        Rc::new(Expression::Name(n, s))
     })
-    .or(token_nodiscard(TT::KEYWORD, "True").map(|t| Expression::True(t.span)))
-    .or(token_nodiscard(TT::KEYWORD, "False").map(|t| Expression::False(t.span)))
-    .or(token_nodiscard(TT::KEYWORD, "None").map(|t| Expression::None(t.span)))
+    .or(token_nodiscard(TT::KEYWORD, "True").map(|t| Rc::new(Expression::True(t.span))))
+    .or(token_nodiscard(TT::KEYWORD, "False").map(|t| Rc::new(Expression::False(t.span))))
+    .or(token_nodiscard(TT::KEYWORD, "None").map(|t| Rc::new(Expression::None(t.span))))
     .or(strings)
     .or(number)
     .or(tuple.or(group).or(genexp))
     .or(list.or(listcomp))
     .or(dict.or(set).or(dictcomp).or(setcomp))
-    .or(tok(TT::ELLIPSIS).map(|t| Expression::Ellipsis(t.span)))
+    .or(tok(TT::ELLIPSIS).map(|t| Rc::new(Expression::Ellipsis(t.span))))
     .parse(input)
 }
 
-fn number(input: ParserInput) -> ParseResult<Expression> {
+fn number(input: ParserInput) -> ParseResult<Rc<Expression>> {
     tok(TT::NUMBER)
         .map(|t| {
-            let s = t.span.clone();
-            Expression::Number(t.into(), s)
+            let s = t.span;
+            Rc::new(Expression::Number(t.into(), s))
         })
         .parse(input)
 }
 
 // group:
 //     | '(' (yield_expr | named_expression) ')'
-fn group(input: ParserInput) -> ParseResult<Expression> {
+fn group(input: ParserInput) -> ParseResult<Rc<Expression>> {
     right(
         tok(TT::LPAR),
         left(yield_expr.or(named_expression), tok(TT::RPAR)),
@@ -2574,7 +2576,7 @@ fn group(input: ParserInput) -> ParseResult<Expression> {
 
 // lambdef:
 //     | 'lambda' [lambda_params] ':' expression
-fn lambdef(input: ParserInput) -> ParseResult<Expression> {
+fn lambdef(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         left(
             pair(
@@ -2587,10 +2589,10 @@ fn lambdef(input: ParserInput) -> ParseResult<Expression> {
     )
     .map(|((t, p), b)| {
         let s = t.span.till(&b);
-        match p {
-            Some(Expression::Parameters(p, _)) => Expression::Lambda(p, Box::new(b), s),
-            None => Expression::Lambda(vec![], Box::new(b), s),
-            _ => Expression::Invalid(s),
+        match p.as_deref() {
+            Some(Expression::Parameters(p, _)) => Rc::new(Expression::Lambda(p.clone(), b, s)),
+            None => Rc::new(Expression::Lambda(vec![], b, s)),
+            _ => Rc::new(Expression::Invalid(s)),
         }
     })
     .parse(input)
@@ -2609,7 +2611,7 @@ fn lambdef(input: ParserInput) -> ParseResult<Expression> {
 //     | lambda_param_no_default+ lambda_param_with_default* [lambda_star_etc]
 //     | lambda_param_with_default+ [lambda_star_etc]
 //     | lambda_star_etc
-fn lambda_parameters(input: ParserInput) -> ParseResult<Expression> {
+fn lambda_parameters(input: ParserInput) -> ParseResult<Rc<Expression>> {
     on_error_pass(invalid_lambda_parameters)
         .or(pair(
             pair(
@@ -2625,12 +2627,12 @@ fn lambda_parameters(input: ParserInput) -> ParseResult<Expression> {
             let u = p.span().till(&r);
             p.extend(q);
             p.extend(r);
-            match s {
-                Some(Expression::Parameters(t, _)) => p.extend(t),
+            match s.as_deref() {
+                Some(Expression::Parameters(t, _)) => p.extend(t.clone()),
                 None => {}
-                _ => return Expression::Invalid(u.clone()),
+                _ => return Rc::new(Expression::Invalid(u)),
             }
-            Expression::Parameters(p, u)
+            Rc::new(Expression::Parameters(p, u))
         })
         .or(pair(
             pair(
@@ -2642,12 +2644,12 @@ fn lambda_parameters(input: ParserInput) -> ParseResult<Expression> {
         .map(|((mut p, q), r)| {
             let u = p.span().till(&q);
             p.extend(q);
-            match r {
-                Some(Expression::Parameters(s, _)) => p.extend(s),
+            match r.as_deref() {
+                Some(Expression::Parameters(s, _)) => p.extend(s.clone()),
                 None => {}
-                _ => return Expression::Invalid(u.clone()),
+                _ => return Rc::new(Expression::Invalid(u)),
             }
-            Expression::Parameters(p, u)
+            Rc::new(Expression::Parameters(p, u))
         }))
         .or(pair(
             pair(
@@ -2659,12 +2661,12 @@ fn lambda_parameters(input: ParserInput) -> ParseResult<Expression> {
         .map(|((mut p, q), r)| {
             let u = p.span().till(&q);
             p.extend(q);
-            match r {
-                Some(Expression::Parameters(s, _)) => p.extend(s),
+            match r.as_deref() {
+                Some(Expression::Parameters(s, _)) => p.extend(s.clone()),
                 None => {}
-                _ => return Expression::Invalid(u.clone()),
+                _ => return Rc::new(Expression::Invalid(u)),
             }
-            Expression::Parameters(p, u)
+            Rc::new(Expression::Parameters(p, u))
         }))
         .or(pair(
             one_or_more(lambda_param_with_default),
@@ -2672,12 +2674,12 @@ fn lambda_parameters(input: ParserInput) -> ParseResult<Expression> {
         )
         .map(|(mut p, q)| {
             let u = p.span();
-            match q {
-                Some(Expression::Parameters(s, _)) => p.extend(s),
+            match q.as_deref() {
+                Some(Expression::Parameters(s, _)) => p.extend(s.clone()),
                 None => {}
-                _ => return Expression::Invalid(u.clone()),
+                _ => return Rc::new(Expression::Invalid(u)),
             }
-            Expression::Parameters(p, u)
+            Rc::new(Expression::Parameters(p, u))
         })))
         .or(lambda_star_etc)
         .parse(input)
@@ -2719,7 +2721,7 @@ fn lambda_slash_with_default(input: ParserInput) -> ParseResult<Vec<Parameter>> 
 //     | '*' lambda_param_no_default lambda_param_maybe_default* [lambda_kwds]
 //     | '*' ',' lambda_param_maybe_default+ [lambda_kwds]
 //     | lambda_kwds
-fn lambda_star_etc(input: ParserInput) -> ParseResult<Expression> {
+fn lambda_star_etc(input: ParserInput) -> ParseResult<Rc<Expression>> {
     on_error_pass(invalid_lambda_star_etc)
         .or(pair(
             right(tok(TT::STAR), lambda_param_no_default),
@@ -2730,12 +2732,12 @@ fn lambda_star_etc(input: ParserInput) -> ParseResult<Expression> {
             p.starred = true;
             q.insert(0, p);
             if let Some(kwds) = r {
-                match kwds {
-                    Expression::Parameters(ps, _) => q.extend(ps),
-                    _ => return Expression::Invalid(u.clone()),
+                match kwds.as_ref() {
+                    Expression::Parameters(ps, _) => q.extend(ps.clone()),
+                    _ => return Rc::new(Expression::Invalid(u)),
                 }
             }
-            Expression::Parameters(q, u)
+            Rc::new(Expression::Parameters(q, u))
         }))
         .or(pair(
             right(
@@ -2746,29 +2748,29 @@ fn lambda_star_etc(input: ParserInput) -> ParseResult<Expression> {
         )
         .map(|(mut p, q)| {
             let u = p.span().till(&p).or(&q);
-            if let Some(kwds) = q {
+            if let Some(kwds) = q.as_deref() {
                 match kwds {
-                    Expression::Parameters(ps, _) => p.extend(ps),
-                    _ => return Expression::Invalid(u.clone()),
+                    Expression::Parameters(ps, _) => p.extend(ps.clone()),
+                    _ => return Rc::new(Expression::Invalid(u)),
                 }
             }
-            Expression::Parameters(p, u)
+            Rc::new(Expression::Parameters(p, u))
         }))
-        .or(lambda_kwds.map(|k| match k {
+        .or(lambda_kwds.map(|k| match k.as_ref() {
             Expression::Parameters(_, _) => return k,
-            _ => return Expression::Invalid(k.span()),
+            _ => return Rc::new(Expression::Invalid(k.span())),
         }))
         .parse(input)
 }
 
 // lambda_kwds:
 //     | '**' lambda_param_no_default
-fn lambda_kwds(input: ParserInput) -> ParseResult<Expression> {
+fn lambda_kwds(input: ParserInput) -> ParseResult<Rc<Expression>> {
     on_error_pass(invalid_lambda_kwds)
         .or(
             right(tok(TT::DOUBLESTAR), lambda_param_no_default).map(|param| {
                 let span = param.span();
-                Expression::Parameters(vec![param], span)
+                Rc::new(Expression::Parameters(vec![param], span))
             }),
         )
         .parse(input)
@@ -2826,25 +2828,31 @@ fn lambda_param(input: ParserInput) -> ParseResult<Parameter> {
 // fstring_middle:
 //     | fstring_replacement_field
 //     | FSTRING_MIDDLE
-fn fstring_middle(input: ParserInput) -> ParseResult<Expression> {
+fn fstring_middle(input: ParserInput) -> ParseResult<Rc<Expression>> {
     fstring_replacement_field
         .map(|fs| {
-            if let Expression::FStringReplacement(f, s) = fs {
-                Expression::FString(FString::Interpolated(f), s)
+            if let Expression::FStringReplacement(f, s) = fs.as_ref() {
+                Rc::new(Expression::FString(
+                    FString::Interpolated(f.clone()),
+                    s.clone(),
+                ))
             } else {
                 fs
             }
         })
         .or(tok(TT::FSTRING_MIDDLE).map(|f| {
             let s = f.span;
-            Expression::FString(FString::Literal(f.lexeme, s.clone()), s.clone())
+            Rc::new(Expression::FString(
+                FString::Literal(Rc::from(f.lexeme), s),
+                s,
+            ))
         }))
         .parse(input)
 }
 
 // fstring_replacement_field:
 //     | '{' (yield_expr | star_expressions) '='? [fstring_conversion] [fstring_full_format_spec] '}'
-fn fstring_replacement_field(input: ParserInput) -> ParseResult<Expression> {
+fn fstring_replacement_field(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         pair(
             right(
@@ -2857,7 +2865,7 @@ fn fstring_replacement_field(input: ParserInput) -> ParseResult<Expression> {
     )
     .map(|((exprs, (dbg, conversion)), fmt)| {
         let span = exprs.span();
-        Expression::FStringReplacement(
+        Rc::new(Expression::FStringReplacement(
             FStringReplacement {
                 exprs,
                 debug: dbg.is_some(),
@@ -2865,7 +2873,7 @@ fn fstring_replacement_field(input: ParserInput) -> ParseResult<Expression> {
                 format_specs: fmt.unwrap_or_default(),
             },
             span,
-        )
+        ))
     })
     .or(invalid_replacement_field)
     .parse(input)
@@ -2879,33 +2887,41 @@ fn fstring_conversion(input: ParserInput) -> ParseResult<Name> {
 
 // fstring_full_format_spec:
 //     | ':' fstring_format_spec*
-fn fstring_full_format_spec(input: ParserInput) -> ParseResult<Vec<Expression>> {
+fn fstring_full_format_spec(input: ParserInput) -> ParseResult<Vec<Rc<Expression>>> {
     right(tok(TT::COLON), zero_or_more(fstring_format_spec)).parse(input)
 }
 
 // fstring_format_spec:
 //     | FSTRING_MIDDLE
 //     | fstring_replacement_field
-fn fstring_format_spec(input: ParserInput) -> ParseResult<Expression> {
+fn fstring_format_spec(input: ParserInput) -> ParseResult<Rc<Expression>> {
     tok(TT::FSTRING_MIDDLE)
-        .map(|t| Expression::Strings(vec![PyString::Literal(t.lexeme, t.span.clone())], t.span))
+        .map(|t| {
+            Rc::new(Expression::Strings(
+                vec![PyString::Literal(Rc::from(t.lexeme), t.span)],
+                t.span,
+            ))
+        })
         .or(fstring_replacement_field)
         .parse(input)
 }
 
 // fstring:
 //     | FSTRING_START fstring_middle* FSTRING_END
-fn fstring(input: ParserInput) -> ParseResult<Expression> {
+fn fstring(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(
         right(tok(TT::FSTRING_START), zero_or_more(fstring_middle)),
         tok(TT::FSTRING_END),
     )
     .map(|sv| {
         let span = sv.span();
-        if sv.iter().all(|s| matches!(s, Expression::FString(_, _))) {
+        if sv
+            .iter()
+            .all(|s| matches!(s.as_ref(), Expression::FString(_, _)))
+        {
             todo!()
         } else {
-            Expression::Invalid(span)
+            Rc::new(Expression::Invalid(span))
         }
     })
     .parse(input)
@@ -2917,34 +2933,34 @@ fn string(input: ParserInput) -> ParseResult<Token> {
 }
 
 // strings: (fstring|string)+
-fn strings(input: ParserInput) -> ParseResult<Expression> {
+fn strings(input: ParserInput) -> ParseResult<Rc<Expression>> {
     one_or_more(
-        string.map(|t| PyString::Literal(t.lexeme, t.span)), // .or(fstring), FIXME
+        string.map(|t| PyString::Literal(Rc::from(t.lexeme), t.span)), // .or(fstring), FIXME
     )
     .map(|t| {
         let s = t.span();
-        Expression::Strings(t, s)
+        Rc::new(Expression::Strings(t, s))
     })
     .parse(input)
 }
 
 // list:
 //     | '[' [star_named_expressions] ']'
-fn list(input: ParserInput) -> ParseResult<Expression> {
+fn list(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         pair(tok(TT::LSQB), maybe(star_named_expressions)),
         tok(TT::RSQB),
     )
     .map(|((l, e), r)| {
         let s = l.span.till(&r);
-        Expression::List(e.unwrap_or_default(), s)
+        Rc::new(Expression::List(e.unwrap_or_default(), s))
     })
     .parse(input)
 }
 
 // tuple:
 //     | '(' [star_named_expression ',' [star_named_expressions]  ] ')'
-fn tuple(input: ParserInput) -> ParseResult<Expression> {
+fn tuple(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         pair(
             tok(TT::LPAR),
@@ -2962,20 +2978,20 @@ fn tuple(input: ParserInput) -> ParseResult<Expression> {
             v.push(e);
             v.extend(es.unwrap_or_default());
         }
-        Expression::Tuple(v, s)
+        Rc::new(Expression::Tuple(v, s))
     })
     .parse(input)
 }
 
 // set: '{' star_named_expressions '}'
-fn set(input: ParserInput) -> ParseResult<Expression> {
+fn set(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         pair(tok(TT::LBRACE), star_named_expressions),
         tok(TT::RBRACE),
     )
     .map(|((l, e), r)| {
         let s = l.span.till(&r);
-        Expression::Set(e, s)
+        Rc::new(Expression::Set(e, s))
     })
     .parse(input)
 }
@@ -2985,14 +3001,14 @@ fn set(input: ParserInput) -> ParseResult<Expression> {
 
 // dict:
 //     | '{' [double_starred_kvpairs] '}'
-fn dict(input: ParserInput) -> ParseResult<Expression> {
+fn dict(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         pair(tok(TT::LBRACE), maybe(double_starred_kvpairs)),
         tok(TT::RBRACE),
     )
     .map(|((l, e), r)| {
         let s = l.span.till(&r);
-        Expression::Dict(e.unwrap_or_default(), s)
+        Rc::new(Expression::Dict(e.unwrap_or_default(), s))
     })
     .or(on_error_pass(left(
         right(tok(TT::LBRACE), invalid_double_starred_kvpairs),
@@ -3002,7 +3018,7 @@ fn dict(input: ParserInput) -> ParseResult<Expression> {
 }
 
 // double_starred_kvpairs: ','.double_starred_kvpair+ [',']
-fn double_starred_kvpairs(input: ParserInput) -> ParseResult<Vec<Expression>> {
+fn double_starred_kvpairs(input: ParserInput) -> ParseResult<Vec<Rc<Expression>>> {
     left(
         sep_by(double_starred_kvpair, TT::COMMA),
         maybe(tok(TT::COMMA)),
@@ -3013,22 +3029,22 @@ fn double_starred_kvpairs(input: ParserInput) -> ParseResult<Vec<Expression>> {
 // double_starred_kvpair:
 //     | '**' bitwise_or
 //     | kvpair
-fn double_starred_kvpair(input: ParserInput) -> ParseResult<Expression> {
+fn double_starred_kvpair(input: ParserInput) -> ParseResult<Rc<Expression>> {
     right(tok(TT::DOUBLESTAR), bitwise_or)
         .map(|e| {
             let s = e.span();
-            Expression::DictUnwrap(Box::new(e), s)
+            Rc::new(Expression::DictUnwrap(e, s))
         })
         .or(kvpair)
         .parse(input)
 }
 
 // kvpair: expression ':' expression
-fn kvpair(input: ParserInput) -> ParseResult<Expression> {
+fn kvpair(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(expression, right(tok(TT::COLON), expression))
         .map(|(e, f)| {
             let s = e.span().till(&f);
-            Expression::Tuple(vec![e, f], s)
+            Rc::new(Expression::Tuple(vec![e, f], s))
         })
         .parse(input)
 }
@@ -3038,14 +3054,14 @@ fn kvpair(input: ParserInput) -> ParseResult<Expression> {
 
 // for_if_clauses:
 //     | for_if_clause+
-fn for_if_clauses(input: ParserInput) -> ParseResult<Vec<Expression>> {
+fn for_if_clauses(input: ParserInput) -> ParseResult<Vec<Rc<Expression>>> {
     one_or_more(for_if_clause).parse(input)
 }
 
 // for_if_clause:
 //     | ASYNC 'for' star_targets 'in' ~ disjunction ('if' disjunction )*
 //     | 'for' star_targets 'in' ~ disjunction ('if' disjunction )*
-fn for_if_clause(input: ParserInput) -> ParseResult<Expression> {
+fn for_if_clause(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         maybe(token(TT::KEYWORD, "async")),
         pair(
@@ -3066,24 +3082,24 @@ fn for_if_clause(input: ParserInput) -> ParseResult<Expression> {
     )
     .map(|(a, (((t, tgt), set), ifs))| {
         let s = t.span.till(&set);
-        Expression::ForIfClause(tgt, Box::new(set), ifs, a.is_some(), s)
+        Rc::new(Expression::ForIfClause(tgt, set, ifs, a.is_some(), s))
     })
     .or(on_error_pass(
-        invalid_for_target.map(|s| Expression::Invalid(s.span())),
+        invalid_for_target.map(|s| Rc::new(Expression::Invalid(s.span()))),
     ))
     .parse(input)
 }
 
 // listcomp:
 //     | '[' named_expression for_if_clauses ']'
-fn listcomp(input: ParserInput) -> ParseResult<Expression> {
+fn listcomp(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         right(tok(TT::LSQB), star_named_expression),
         left(for_if_clauses, tok(TT::RSQB)),
     )
     .map(|(e, f)| {
         let s = e.span().till(&f);
-        Expression::ListComprehension(Box::new(e), f, s)
+        Rc::new(Expression::ListComprehension(e, f, s))
     })
     .or(on_error_pass(invalid_comprehension))
     .parse(input)
@@ -3091,14 +3107,14 @@ fn listcomp(input: ParserInput) -> ParseResult<Expression> {
 
 // setcomp:
 //     | '{' named_expression for_if_clauses '}'
-fn setcomp(input: ParserInput) -> ParseResult<Expression> {
+fn setcomp(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         right(tok(TT::LBRACE), named_expression),
         left(for_if_clauses, tok(TT::RBRACE)),
     )
     .map(|(e, f)| {
         let s = e.span().till(&f);
-        Expression::SetComprehension(Box::new(e), f, s)
+        Rc::new(Expression::SetComprehension(e, f, s))
     })
     .or(on_error_pass(invalid_comprehension))
     .parse(input)
@@ -3106,7 +3122,7 @@ fn setcomp(input: ParserInput) -> ParseResult<Expression> {
 
 // genexp:
 //     | '(' ( assignment_expression | expression !':=') for_if_clauses ')'
-fn genexp(input: ParserInput) -> ParseResult<Expression> {
+fn genexp(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         right(
             tok(TT::LPAR),
@@ -3116,7 +3132,7 @@ fn genexp(input: ParserInput) -> ParseResult<Expression> {
     )
     .map(|(e, f)| {
         let s = e.span().till(&f);
-        Expression::Generator(Box::new(e), f, s)
+        Rc::new(Expression::Generator(e, f, s))
     })
     .or(on_error_pass(invalid_comprehension))
     .parse(input)
@@ -3124,14 +3140,14 @@ fn genexp(input: ParserInput) -> ParseResult<Expression> {
 
 // dictcomp:
 //     | '{' kvpair for_if_clauses '}'
-fn dictcomp(input: ParserInput) -> ParseResult<Expression> {
+fn dictcomp(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         right(tok(TT::LBRACE), kvpair),
         left(for_if_clauses, tok(TT::RSQB)),
     )
     .map(|(e, f)| {
         let s = e.span().till(&f);
-        Expression::DictComprehension(Box::new(e), f, s)
+        Rc::new(Expression::DictComprehension(e, f, s))
     })
     .or(on_error_pass(invalid_dict_comprehension))
     .parse(input)
@@ -3142,11 +3158,11 @@ fn dictcomp(input: ParserInput) -> ParseResult<Expression> {
 
 // arguments:
 //     | args [','] &')'
-fn arguments(input: ParserInput) -> ParseResult<Expression> {
+fn arguments(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(
         args.map(|a| {
             let s = a.span();
-            Expression::Arguments(a, s)
+            Rc::new(Expression::Arguments(a, s))
         }),
         pair(maybe(tok(TT::COMMA)), lookahead(tok(TT::RPAR))),
     )
@@ -3183,7 +3199,7 @@ fn args(input: ParserInput) -> ParseResult<Arguments> {
 //     | ','.kwarg_or_starred+ ',' ','.kwarg_or_double_starred+
 //     | ','.kwarg_or_starred+
 //     | ','.kwarg_or_double_starred+
-fn kwargs(input: ParserInput) -> ParseResult<Vec<Expression>> {
+fn kwargs(input: ParserInput) -> ParseResult<Vec<Rc<Expression>>> {
     pair(
         left(sep_by(kwarg_or_starred, TT::COMMA), tok(TT::COMMA)),
         sep_by(kwarg_or_double_starred, TT::COMMA),
@@ -3199,11 +3215,11 @@ fn kwargs(input: ParserInput) -> ParseResult<Vec<Expression>> {
 
 // starred_expression:
 //     | '*' expression
-fn starred_expression(input: ParserInput) -> ParseResult<Expression> {
+fn starred_expression(input: ParserInput) -> ParseResult<Rc<Expression>> {
     on_error_pass(invalid_starred_expression)
         .or(right(tok(TT::STAR), expression).map(|e| {
             let s = e.span();
-            Expression::ListUnwrap(Box::new(e), s)
+            Rc::new(Expression::ListUnwrap(e, s))
         }))
         .parse(input)
 }
@@ -3211,12 +3227,12 @@ fn starred_expression(input: ParserInput) -> ParseResult<Expression> {
 // kwarg_or_starred:
 //     | NAME '=' expression
 //     | starred_expression
-fn kwarg_or_starred(input: ParserInput) -> ParseResult<Expression> {
+fn kwarg_or_starred(input: ParserInput) -> ParseResult<Rc<Expression>> {
     on_error_pass(invalid_kwarg)
         .or(pair(left(name, tok(TT::EQUAL)), expression)
             .map(|(n, e)| {
                 let s = n.span.till(&e);
-                Expression::KeywordArgument(n, Box::new(e), s)
+                Rc::new(Expression::KeywordArgument(n, e, s))
             })
             .or(starred_expression))
         .parse(input)
@@ -3225,12 +3241,12 @@ fn kwarg_or_starred(input: ParserInput) -> ParseResult<Expression> {
 // kwarg_or_double_starred:
 //     | NAME '=' expression
 //     | '**' expression
-fn kwarg_or_double_starred(input: ParserInput) -> ParseResult<Expression> {
+fn kwarg_or_double_starred(input: ParserInput) -> ParseResult<Rc<Expression>> {
     on_error_pass(invalid_kwarg)
         .or(pair(left(name, tok(TT::EQUAL)), expression)
             .map(|(n, e)| {
                 let s = n.span.till(&e);
-                Expression::KeywordArgument(n, Box::new(e), s)
+                Rc::new(Expression::KeywordArgument(n, e, s))
             })
             .or(right(tok(TT::DOUBLESTAR), expression)))
         .parse(input)
@@ -3246,19 +3262,19 @@ fn kwarg_or_double_starred(input: ParserInput) -> ParseResult<Expression> {
 // star_targets:
 //     | star_target !','
 //     | star_target (',' star_target )* [',']
-fn star_targets(input: ParserInput) -> ParseResult<Vec<Expression>> {
+fn star_targets(input: ParserInput) -> ParseResult<Vec<Rc<Expression>>> {
     left(sep_by(star_target, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
 // star_targets_list_seq: ','.star_target+ [',']
-fn star_targets_list_seq(input: ParserInput) -> ParseResult<Vec<Expression>> {
+fn star_targets_list_seq(input: ParserInput) -> ParseResult<Vec<Rc<Expression>>> {
     left(sep_by(star_target, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
 // star_targets_tuple_seq:
 //     | star_target (',' star_target )+ [',']
 //     | star_target ','
-fn star_targets_tuple_seq(input: ParserInput) -> ParseResult<Vec<Expression>> {
+fn star_targets_tuple_seq(input: ParserInput) -> ParseResult<Vec<Rc<Expression>>> {
     pair(
         star_target,
         left(
@@ -3277,7 +3293,7 @@ fn star_targets_tuple_seq(input: ParserInput) -> ParseResult<Vec<Expression>> {
 // star_target:
 //     | '*' (!'*' star_target)
 //     | target_with_star_atom
-fn star_target(input: ParserInput) -> ParseResult<Expression> {
+fn star_target(input: ParserInput) -> ParseResult<Rc<Expression>> {
     if let Some(result) = try_remember(input, star_target) {
         return result;
     }
@@ -3292,7 +3308,7 @@ fn star_target(input: ParserInput) -> ParseResult<Expression> {
 //     | t_primary '.' NAME !t_lookahead
 //     | t_primary '[' slices ']' !t_lookahead
 //     | star_atom
-fn target_with_star_atom(input: ParserInput) -> ParseResult<Expression> {
+fn target_with_star_atom(input: ParserInput) -> ParseResult<Rc<Expression>> {
     if let Some(result) = try_remember(input, target_with_star_atom) {
         return result;
     }
@@ -3322,10 +3338,10 @@ fn target_with_star_atom(input: ParserInput) -> ParseResult<Expression> {
 //     | '(' target_with_star_atom ')'
 //     | '(' [star_targets_tuple_seq] ')'
 //     | '[' [star_targets_list_seq] ']'
-fn star_atom(input: ParserInput) -> ParseResult<Expression> {
+fn star_atom(input: ParserInput) -> ParseResult<Rc<Expression>> {
     name.map(|n| {
-        let s = n.span.clone();
-        Expression::Name(n, s)
+        let s = n.span;
+        Rc::new(Expression::Name(n, s))
     })
     .or(left(
         right(tok(TT::LPAR), target_with_star_atom),
@@ -3337,7 +3353,7 @@ fn star_atom(input: ParserInput) -> ParseResult<Expression> {
     )
     .map(|((l, v), r)| {
         let s = l.span.till(&r);
-        Expression::Tuple(v.unwrap_or_default(), s)
+        Rc::new(Expression::Tuple(v.unwrap_or_default(), s))
     }))
     .or(pair(
         pair(tok(TT::LSQB), maybe(star_targets_list_seq)),
@@ -3345,7 +3361,7 @@ fn star_atom(input: ParserInput) -> ParseResult<Expression> {
     )
     .map(|((l, v), r)| {
         let s = l.span.till(&r);
-        Expression::List(v.unwrap_or_default(), s)
+        Rc::new(Expression::List(v.unwrap_or_default(), s))
     }))
     .parse(input)
 }
@@ -3354,11 +3370,11 @@ fn star_atom(input: ParserInput) -> ParseResult<Expression> {
 //     | single_subscript_attribute_target
 //     | NAME
 //     | '(' single_target ')'
-fn single_target(input: ParserInput) -> ParseResult<Expression> {
+fn single_target(input: ParserInput) -> ParseResult<Rc<Expression>> {
     single_subscript_attribute_target
         .or(name.map(|n| {
-            let s = n.span.clone();
-            Expression::Name(n, s)
+            let s = n.span;
+            Rc::new(Expression::Name(n, s))
         }))
         .or(left(right(tok(TT::LPAR), single_target), tok(TT::RPAR)))
         .parse(input)
@@ -3370,16 +3386,15 @@ enum Selector {
 }
 
 impl Selector {
-    fn apply_to(self, expr: Expression) -> Expression {
-        let e = Box::new(expr);
+    fn apply_to(self, expr: Rc<Expression>) -> Rc<Expression> {
         match self {
             Self::Name(n) => {
-                let s = e.span().till(&n);
-                Expression::Subscript(e, n, s)
+                let s = expr.span().till(&n);
+                Rc::new(Expression::Subscript(expr, n, s))
             }
             Self::Slice(s) => {
-                let sp = e.span().till(&s);
-                Expression::Slice(e, s, sp)
+                let sp = expr.span().till(&s);
+                Rc::new(Expression::Slice(expr, s, sp))
             }
         }
     }
@@ -3388,7 +3403,7 @@ impl Selector {
 // single_subscript_attribute_target:
 //     | t_primary '.' NAME !t_lookahead
 //     | t_primary '[' slices ']' !t_lookahead
-fn single_subscript_attribute_target(input: ParserInput) -> ParseResult<Expression> {
+fn single_subscript_attribute_target(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         t_primary,
         right(
@@ -3409,7 +3424,7 @@ fn single_subscript_attribute_target(input: ParserInput) -> ParseResult<Expressi
 
 // t_primary:
 //     | atom &t_lookahead t_primary_tail
-fn t_primary(input: ParserInput) -> ParseResult<Expression> {
+fn t_primary(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(left(atom, lookahead(t_lookahead)), t_primary_tail)
         .map(|(a, tail)| {
             let mut current_expr = a;
@@ -3421,25 +3436,25 @@ fn t_primary(input: ParserInput) -> ParseResult<Expression> {
                     }
                     IncompleteExpression::Call(args, tail) => {
                         let s = current_expr.span().till(&args);
-                        (Expression::Call(Box::new(current_expr), args, s), tail)
+                        (Rc::new(Expression::Call(current_expr, args, s)), tail)
                     }
                     IncompleteExpression::Slice(slice, tail) => {
                         let s = current_expr.span().till(&slice);
-                        (Expression::Slice(Box::new(current_expr), slice, s), tail)
+                        (Rc::new(Expression::Slice(current_expr, slice, s)), tail)
                     }
                     IncompleteExpression::Subscript(name, tail) => {
                         let s = current_expr.span().till(&name);
-                        (Expression::Subscript(Box::new(current_expr), name, s), tail)
+                        (Rc::new(Expression::Subscript(current_expr, name, s)), tail)
                     }
                     IncompleteExpression::PrimaryGenexp(genexp, tail) => {
                         let s = current_expr.span().till(&genexp);
                         (
-                            Expression::PrimaryGenexp(Box::new(current_expr), genexp, s),
+                            Rc::new(Expression::PrimaryGenexp(current_expr, *genexp, s)),
                             tail,
                         )
                     }
                     IncompleteExpression::Invalid => (
-                        Expression::Invalid(current_expr.span()),
+                        Rc::new(Expression::Invalid(current_expr.span())),
                         Box::new(IncompleteExpression::Empty),
                     ),
                     _ => unreachable!(),
@@ -3480,8 +3495,8 @@ fn t_primary_tail(input: ParserInput) -> ParseResult<IncompleteExpression> {
         t_primary_tail,
     )
     .map(|(n, tail)| {
-        let args = match n {
-            Expression::Arguments(args, _) => args,
+        let args = match n.as_ref() {
+            Expression::Arguments(args, _) => args.clone(),
             _ => return IncompleteExpression::Invalid,
         };
         IncompleteExpression::Call(args, Box::new(tail))
@@ -3502,14 +3517,14 @@ fn t_lookahead(input: ParserInput) -> ParseResult<Token> {
 // # --------------------------
 
 // del_targets: ','.del_target+ [',']
-fn del_targets(input: ParserInput) -> ParseResult<Vec<Expression>> {
+fn del_targets(input: ParserInput) -> ParseResult<Vec<Rc<Expression>>> {
     left(sep_by(del_target, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
 // del_target:
 //     | t_primary !t_lookahead
 //     | del_t_atom
-fn del_target(input: ParserInput) -> ParseResult<Expression> {
+fn del_target(input: ParserInput) -> ParseResult<Rc<Expression>> {
     if let Some(result) = try_remember(input, del_target) {
         return result;
     }
@@ -3525,22 +3540,22 @@ fn del_target(input: ParserInput) -> ParseResult<Expression> {
 //     | '(' del_target ')'
 //     | '(' [del_targets] ')'
 //     | '[' [del_targets] ']'
-fn del_t_atom(input: ParserInput) -> ParseResult<Expression> {
+fn del_t_atom(input: ParserInput) -> ParseResult<Rc<Expression>> {
     name.map(|n| {
-        let s = n.span.clone();
-        Expression::Name(n, s)
+        let s = n.span;
+        Rc::new(Expression::Name(n, s))
     })
     .or(left(right(tok(TT::LPAR), del_target), tok(TT::RPAR)))
     .or(
         pair(pair(tok(TT::LPAR), maybe(del_targets)), tok(TT::RPAR)).map(|((l, v), r)| {
             let s = l.span.till(&r);
-            Expression::Tuple(v.unwrap_or_default(), s)
+            Rc::new(Expression::Tuple(v.unwrap_or_default(), s))
         }),
     )
     .or(
         pair(pair(tok(TT::LSQB), maybe(del_targets)), tok(TT::RSQB)).map(|((l, v), r)| {
             let s = l.span.till(&r);
-            Expression::List(v.unwrap_or_default(), s)
+            Rc::new(Expression::List(v.unwrap_or_default(), s))
         }),
     )
     .parse(input)
@@ -3582,7 +3597,7 @@ fn del_t_atom(input: ParserInput) -> ParseResult<Expression> {
 //     | args ',' a=expression b=for_if_clauses {
 //         RAISE_SYNTAX_ERROR_KNOWN_RANGE(a, _PyPegen_get_last_comprehension_item(PyPegen_last_item(b, comprehension_ty)), "Generator expression must be parenthesized") }
 //     | a=args ',' args { _PyPegen_arguments_parsing_error(p, a) }
-fn invalid_arguments(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_arguments(input: ParserInput) -> ParseResult<Rc<Expression>> {
     right(
         sep_by(
             starred_expression.discard().or(pair(
@@ -3602,7 +3617,7 @@ fn invalid_arguments(input: ParserInput) -> ParseResult<Expression> {
             "iterable argument unpacking follows keyword argument unpacking",
         );
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     })
     .or(left(
         pair(expression, for_if_clauses),
@@ -3621,7 +3636,7 @@ fn invalid_arguments(input: ParserInput) -> ParseResult<Expression> {
             "Generator expression must be parenthesized",
         );
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     }))
     .or(
         left(pair(name, tok(TT::EQUAL)), pair(expression, for_if_clauses)).map(move |(a, b)| {
@@ -3631,7 +3646,7 @@ fn invalid_arguments(input: ParserInput) -> ParseResult<Expression> {
                 "invalid syntax. Maybe you meant '==' or ':=' instead of '='?",
             );
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }),
     )
     .or(right(
@@ -3644,7 +3659,7 @@ fn invalid_arguments(input: ParserInput) -> ParseResult<Expression> {
     .map(move |(a, b)| {
         let error = Error::with_range(a.span(), b.span(), "expected argument value expression");
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     }))
     //     FIXME: | a=args b=for_if_clauses { _PyPegen_nonparen_genexp_in_call(p, a, b) }
     .or(
@@ -3655,7 +3670,7 @@ fn invalid_arguments(input: ParserInput) -> ParseResult<Expression> {
                 "Generator expression must be parenthesized",
             );
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }),
     )
     //  FIXME:   | a=args ',' args { _PyPegen_arguments_parsing_error(p, a) }
@@ -3672,7 +3687,7 @@ fn invalid_arguments(input: ParserInput) -> ParseResult<Expression> {
 //             a, b, "expression cannot contain assignment, perhaps you meant \"==\"?") }
 //     | a='**' expression '=' b=expression {
 //         RAISE_SYNTAX_ERROR_KNOWN_RANGE(a, b, "cannot assign to keyword argument unpacking") }
-fn invalid_kwarg(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_kwarg(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         token_nodiscard(TT::KEYWORD, "True")
             .or(token_nodiscard(TT::KEYWORD, "False"))
@@ -3686,7 +3701,7 @@ fn invalid_kwarg(input: ParserInput) -> ParseResult<Expression> {
             &format!("cannot assign to {}", t.lexeme),
         );
         input.report_error(error);
-        Expression::Invalid(t.span().till(&s))
+        Rc::new(Expression::Invalid(t.span().till(&s)))
     })
     .or(
         left(pair(name, tok(TT::EQUAL)), pair(expression, for_if_clauses)).map(move |(t, s)| {
@@ -3696,7 +3711,7 @@ fn invalid_kwarg(input: ParserInput) -> ParseResult<Expression> {
                 "invalid syntax. Maybe you meant '==' or ':=' instead of '='?",
             );
             input.report_error(error);
-            Expression::Invalid(t.span.till(&s))
+            Rc::new(Expression::Invalid(t.span.till(&s)))
         }),
     )
     .or(right(
@@ -3710,7 +3725,7 @@ fn invalid_kwarg(input: ParserInput) -> ParseResult<Expression> {
             "expression cannot contain assignment, perhaps you meant '=='?",
         );
         input.report_error(error);
-        Expression::Invalid(t.span().till(&s))
+        Rc::new(Expression::Invalid(t.span().till(&s)))
     }))
     .or(pair(
         left(tok(TT::DOUBLESTAR), expression),
@@ -3723,7 +3738,7 @@ fn invalid_kwarg(input: ParserInput) -> ParseResult<Expression> {
             "cannot assign to keyword argument unpacking",
         );
         input.report_error(error);
-        Expression::Invalid(t.span.till(&s))
+        Rc::new(Expression::Invalid(t.span.till(&s)))
     }))
     .parse(input)
 }
@@ -3733,7 +3748,7 @@ fn invalid_kwarg(input: ParserInput) -> ParseResult<Expression> {
 //     | a=disjunction 'if' b=disjunction 'else' c=expression { _PyAST_IfExp(b, a, c, EXTRA) }
 //     | disjunction
 //     | lambdef
-fn expression_without_invalid(input: ParserInput) -> ParseResult<Expression> {
+fn expression_without_invalid(input: ParserInput) -> ParseResult<Rc<Expression>> {
     todo!()
 }
 
@@ -3741,9 +3756,9 @@ fn expression_without_invalid(input: ParserInput) -> ParseResult<Expression> {
 //     | a=NAME !'(' b=star_expressions {
 //         _PyPegen_check_legacy_stmt(p, a) ? RAISE_SYNTAX_ERROR_KNOWN_RANGE(a, b,
 //             "Missing parentheses in call to '%U'. Did you mean %U(...)?", a->v.Name.id, a->v.Name.id) : NULL}
-fn invalid_legacy_expression(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_legacy_expression(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
-        name.pred(|n| n.name.as_str() == "exec" || n.name.as_str() == "print"),
+        name.pred(|n| *n.name == *"exec" || *n.name == *"print"),
         right(not(tok(TT::LPAR)), star_expressions),
     )
     .map(move |(a, b)| {
@@ -3756,7 +3771,7 @@ fn invalid_legacy_expression(input: ParserInput) -> ParseResult<Expression> {
             ),
         );
         input.report_error(error);
-        Expression::Invalid(a.span().till(&b))
+        Rc::new(Expression::Invalid(a.span().till(&b)))
     })
     .parse(input)
 }
@@ -3771,7 +3786,7 @@ fn invalid_legacy_expression(input: ParserInput) -> ParseResult<Expression> {
 //    | a='lambda' [lambda_params] b=':' &FSTRING_MIDDLE  {
 //         RAISE_SYNTAX_ERROR_KNOWN_RANGE(a, b, "f-string: lambda expressions are not allowed without parentheses") }
 // FIXME: Incomplete
-fn invalid_expression(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_expression(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         left(disjunction, token(TT::KEYWORD, "if")),
         left(
@@ -3782,7 +3797,7 @@ fn invalid_expression(input: ParserInput) -> ParseResult<Expression> {
     .map(move |(a, b)| {
         let error = Error::with_range(a.span(), b.span(), "expected 'else' after 'if' expression");
         input.report_error(error);
-        Expression::Invalid(a.span().till(&b))
+        Rc::new(Expression::Invalid(a.span().till(&b)))
     })
     .or(pair(
         left(
@@ -3798,7 +3813,7 @@ fn invalid_expression(input: ParserInput) -> ParseResult<Expression> {
             "f-string: lambda expressions are not allowed without parentheses",
         );
         input.report_error(error);
-        Expression::Invalid(a.span().till(&b))
+        Rc::new(Expression::Invalid(a.span().till(&b)))
     }))
     .parse(input)
 }
@@ -3812,7 +3827,7 @@ fn invalid_expression(input: ParserInput) -> ParseResult<Expression> {
 //     | !(list|tuple|genexp|'True'|'None'|'False') a=bitwise_or b='=' bitwise_or !('='|':=') {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "cannot assign to %s here. Maybe you meant '==' instead of '='?",
 //                                           _PyPegen_get_expr_name(a)) }
-fn invalid_named_expression(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_named_expression(input: ParserInput) -> ParseResult<Rc<Expression>> {
     if let Some(result) = try_remember(input, invalid_named_expression) {
         return result;
     }
@@ -3820,7 +3835,7 @@ fn invalid_named_expression(input: ParserInput) -> ParseResult<Expression> {
         .map(move |t| {
             let error = Error::starting_from(t.span(), "cannot use assignment expressions here");
             input.report_error(error);
-            Expression::Invalid(t.span())
+            Rc::new(Expression::Invalid(t.span()))
         })
         .or(pair(
             left(name, tok(TT::COLONEQUAL)),
@@ -3833,16 +3848,19 @@ fn invalid_named_expression(input: ParserInput) -> ParseResult<Expression> {
                 "invalid syntax. Maybe you meant '==' or ':=' instead of '='?",
             );
             input.report_error(error);
-            Expression::Invalid(s.span().till(&t))
+            Rc::new(Expression::Invalid(s.span().till(&t)))
         }))
         .or(left(
             right(
                 not(list
                     .or(tuple)
                     .or(genexp)
-                    .or(token_nodiscard(TT::KEYWORD, "True").map(|t| Expression::True(t.span)))
-                    .or(token_nodiscard(TT::KEYWORD, "None").map(|t| Expression::None(t.span)))
-                    .or(token_nodiscard(TT::KEYWORD, "False").map(|t| Expression::False(t.span)))),
+                    .or(token_nodiscard(TT::KEYWORD, "True")
+                        .map(|t| Rc::new(Expression::True(t.span))))
+                    .or(token_nodiscard(TT::KEYWORD, "None")
+                        .map(|t| Rc::new(Expression::None(t.span))))
+                    .or(token_nodiscard(TT::KEYWORD, "False")
+                        .map(|t| Rc::new(Expression::False(t.span))))),
                 pair(bitwise_or, tok(TT::EQUAL)),
             ),
             left(bitwise_or, not(tok(TT::EQUAL).or(tok(TT::COLONEQUAL)))),
@@ -3854,7 +3872,7 @@ fn invalid_named_expression(input: ParserInput) -> ParseResult<Expression> {
                 "cannot assign here. Maybe you meant '==' instead of '='?",
             );
             input.report_error(error);
-            Expression::Invalid(s.span().till(&t))
+            Rc::new(Expression::Invalid(s.span().till(&t)))
         }))
         .parse(input);
     save_result(input, invalid_named_expression, &result);
@@ -3949,7 +3967,7 @@ fn invalid_assignment(input: ParserInput) -> ParseResult<Statement> {
 //     | list
 //     | tuple
 //     | '(' a=invalid_ann_assign_target ')' { a }
-fn invalid_ann_assign_target(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_ann_assign_target(input: ParserInput) -> ParseResult<Rc<Expression>> {
     list.or(tuple)
         .or(left(
             right(tok(TT::LPAR), invalid_ann_assign_target),
@@ -3994,7 +4012,7 @@ fn invalid_block(input: ParserInput) -> ParseResult<Vec<Statement>> {
 //         "did you forget parentheses around the comprehension target?") }
 //     | ('[' | '{') a=star_named_expression b=',' for_if_clauses {
 //         RAISE_SYNTAX_ERROR_KNOWN_RANGE(a, b, "did you forget parentheses around the comprehension target?") }
-fn invalid_comprehension(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_comprehension(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(
         right(
             tok(TT::LSQB).or(tok(TT::LPAR)).or(tok(TT::LBRACE)),
@@ -4008,7 +4026,7 @@ fn invalid_comprehension(input: ParserInput) -> ParseResult<Expression> {
             "iterable unpacking cannot be used in comprehension",
         );
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     })
     .or(pair(
         right(tok(TT::LSQB).or(tok(TT::LBRACE)), star_named_expression),
@@ -4021,7 +4039,7 @@ fn invalid_comprehension(input: ParserInput) -> ParseResult<Expression> {
             "did you forget parentheses around the comprehension target?",
         );
         input.report_error(error);
-        Expression::Invalid(a.span().till(&b))
+        Rc::new(Expression::Invalid(a.span().till(&b)))
     }))
     .or(pair(
         right(tok(TT::LSQB).or(tok(TT::LBRACE)), star_named_expression),
@@ -4034,7 +4052,7 @@ fn invalid_comprehension(input: ParserInput) -> ParseResult<Expression> {
             "did you forget parentheses around the comprehension target?",
         );
         input.report_error(error);
-        Expression::Invalid(a.span().till(&b))
+        Rc::new(Expression::Invalid(a.span().till(&b)))
     }))
     .parse(input)
 }
@@ -4042,7 +4060,7 @@ fn invalid_comprehension(input: ParserInput) -> ParseResult<Expression> {
 // invalid_dict_comprehension:
 //     | '{' a='**' bitwise_or for_if_clauses '}' {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "dict unpacking cannot be used in dict comprehension") }
-fn invalid_dict_comprehension(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_dict_comprehension(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(
         right(
             tok(TT::LBRACE),
@@ -4056,7 +4074,7 @@ fn invalid_dict_comprehension(input: ParserInput) -> ParseResult<Expression> {
             "dict unpacking cannot be used in dict comprehension",
         );
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     })
     .parse(input)
 }
@@ -4074,12 +4092,12 @@ fn invalid_dict_comprehension(input: ParserInput) -> ParseResult<Expression> {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "/ must be ahead of *") }
 //     | param_maybe_default+ '/' a='*' {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "expected comma between / and *") }
-fn invalid_parameters(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_parameters(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(tok(TT::SLASH), tok(TT::COMMA))
         .map(move |a| {
             let error = Error::with_underline(a.span(), "at least one argument must precede /");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         })
         .or(right(
             pair(
@@ -4091,7 +4109,7 @@ fn invalid_parameters(input: ParserInput) -> ParseResult<Expression> {
         .map(move |a| {
             let error = Error::with_underline(a.span(), "/ may appear only once");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .or(right(
             pair(
@@ -4108,7 +4126,7 @@ fn invalid_parameters(input: ParserInput) -> ParseResult<Expression> {
                 "parameter without a default follows parameter with a default",
             );
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .or(right(
             zero_or_more(param_no_default),
@@ -4127,7 +4145,7 @@ fn invalid_parameters(input: ParserInput) -> ParseResult<Expression> {
                 "Function parameters cannot be parenthesized",
             );
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .or(right(
             maybe(slash_no_default.or(slash_with_default)),
@@ -4145,7 +4163,7 @@ fn invalid_parameters(input: ParserInput) -> ParseResult<Expression> {
         .map(move |a| {
             let error = Error::with_underline(a.span(), "/ must be ahead of *");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .or(right(
             one_or_more(param_maybe_default),
@@ -4154,19 +4172,19 @@ fn invalid_parameters(input: ParserInput) -> ParseResult<Expression> {
         .map(move |a| {
             let error = Error::with_underline(a.span(), "expected comma between / and *");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .parse(input)
 }
 
 // invalid_default:
 //     | a='=' &(')'|',') { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "expected default value expression") }
-fn invalid_default(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_default(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(tok(TT::EQUAL), lookahead(tok(TT::RPAR).or(tok(TT::COMMA))))
         .map(move |a| {
             let error = Error::with_underline(a.span(), "expected default value expression");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         })
         .parse(input)
 }
@@ -4177,7 +4195,7 @@ fn invalid_default(input: ParserInput) -> ParseResult<Expression> {
 //     | '*' param a='=' { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "var-positional argument cannot have default value") }
 //     | '*' (param_no_default | ',') param_maybe_default* a='*' (param_no_default | ',') {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "* argument may appear only once") }
-fn invalid_star_etc(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_star_etc(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(
         tok(TT::STAR),
         tok(TT::RPAR)
@@ -4187,13 +4205,13 @@ fn invalid_star_etc(input: ParserInput) -> ParseResult<Expression> {
     .map(move |a| {
         let error = Error::with_underline(a.span(), "expected default value expression");
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     })
     .or(
         left(tok(TT::STAR), pair(tok(TT::COMMA), tok(TT::TYPE_COMMENT))).map(move |a| {
             let error = Error::with_underline(a.span(), "bare * has associated type comment");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }),
     )
     .or(
@@ -4203,7 +4221,7 @@ fn invalid_star_etc(input: ParserInput) -> ParseResult<Expression> {
                 "var-positional argument cannot have default value",
             );
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }),
     )
     .or(right(
@@ -4222,7 +4240,7 @@ fn invalid_star_etc(input: ParserInput) -> ParseResult<Expression> {
     .map(move |a| {
         let error = Error::with_underline(a.span(), "* argument may appear only once");
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     }))
     .parse(input)
 }
@@ -4231,13 +4249,13 @@ fn invalid_star_etc(input: ParserInput) -> ParseResult<Expression> {
 //     | '**' param a='=' { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "var-keyword argument cannot have default value") }
 //     | '**' param ',' a=param { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "arguments cannot follow var-keyword argument") }
 //     | '**' param ',' a[Token*]=('*'|'**'|'/') { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "arguments cannot follow var-keyword argument") }
-fn invalid_kwds(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_kwds(input: ParserInput) -> ParseResult<Rc<Expression>> {
     right(pair(tok(TT::DOUBLESTAR), param), tok(TT::EQUAL))
         .map(move |a| {
             let error =
                 Error::with_underline(a.span(), "var-keyword argument cannot have default value");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         })
         .or(right(
             pair(tok(TT::DOUBLESTAR), param),
@@ -4247,7 +4265,7 @@ fn invalid_kwds(input: ParserInput) -> ParseResult<Expression> {
             let error =
                 Error::with_underline(a.span(), "arguments cannot follow var-keyword argument");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .or(right(
             pair(tok(TT::DOUBLESTAR), param),
@@ -4260,7 +4278,7 @@ fn invalid_kwds(input: ParserInput) -> ParseResult<Expression> {
             let error =
                 Error::with_underline(a.span(), "arguments cannot follow var-keyword argument");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .parse(input)
 }
@@ -4281,12 +4299,12 @@ fn invalid_kwds(input: ParserInput) -> ParseResult<Expression> {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "/ must be ahead of *") }
 //     | lambda_param_maybe_default+ '/' a='*' {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "expected comma between / and *") }
-fn invalid_lambda_parameters(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_lambda_parameters(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(tok(TT::SLASH), tok(TT::COMMA))
         .map(move |a| {
             let error = Error::with_underline(a.span(), "at least one argument must precede /");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         })
         .or(right(
             lambda_slash_no_default.or(lambda_slash_with_default),
@@ -4295,7 +4313,7 @@ fn invalid_lambda_parameters(input: ParserInput) -> ParseResult<Expression> {
         .map(move |a| {
             let error = Error::with_underline(a.span(), "/ may appear only once");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .or(right(
             maybe(lambda_slash_no_default),
@@ -4315,7 +4333,7 @@ fn invalid_lambda_parameters(input: ParserInput) -> ParseResult<Expression> {
                 "parameter without a default follows parameter with a default",
             );
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .or(right(
             zero_or_more(lambda_param_no_default),
@@ -4334,7 +4352,7 @@ fn invalid_lambda_parameters(input: ParserInput) -> ParseResult<Expression> {
                 "Lambda expression parameters cannot be parenthesized",
             );
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .or(right(
             pair(
@@ -4357,7 +4375,7 @@ fn invalid_lambda_parameters(input: ParserInput) -> ParseResult<Expression> {
         .map(move |a| {
             let error = Error::with_underline(a.span(), "/ must be ahead of *");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .or(right(
             pair(one_or_more(lambda_param_maybe_default), tok(TT::SLASH)),
@@ -4366,7 +4384,7 @@ fn invalid_lambda_parameters(input: ParserInput) -> ParseResult<Expression> {
         .map(move |a| {
             let error = Error::with_underline(a.span(), "expected comma between / and *");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .parse(input)
 }
@@ -4376,7 +4394,7 @@ fn invalid_lambda_parameters(input: ParserInput) -> ParseResult<Expression> {
 //     | '*' lambda_param a='=' { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "var-positional argument cannot have default value") }
 //     | '*' (lambda_param_no_default | ',') lambda_param_maybe_default* a='*' (lambda_param_no_default | ',') {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "* argument may appear only once") }
-fn invalid_lambda_star_etc(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_lambda_star_etc(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(
         tok(TT::STAR),
         tok(TT::COLON)
@@ -4386,7 +4404,7 @@ fn invalid_lambda_star_etc(input: ParserInput) -> ParseResult<Expression> {
     .map(move |a| {
         let error = Error::with_underline(a.span(), "named arguments must follow bare *");
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     })
     .or(
         right(pair(tok(TT::STAR), lambda_param), tok(TT::EQUAL)).map(move |a| {
@@ -4395,7 +4413,7 @@ fn invalid_lambda_star_etc(input: ParserInput) -> ParseResult<Expression> {
                 "var-positional argument cannot have default value",
             );
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }),
     )
     .or(left(
@@ -4415,7 +4433,7 @@ fn invalid_lambda_star_etc(input: ParserInput) -> ParseResult<Expression> {
     .map(move |a| {
         let error = Error::with_underline(a.span(), "* argument may appear only once");
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     }))
     .parse(input)
 }
@@ -4424,13 +4442,13 @@ fn invalid_lambda_star_etc(input: ParserInput) -> ParseResult<Expression> {
 //     | '**' lambda_param a='=' { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "var-keyword argument cannot have default value") }
 //     | '**' lambda_param ',' a=lambda_param { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "arguments cannot follow var-keyword argument") }
 //     | '**' lambda_param ',' a[Token*]=('*'|'**'|'/') { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "arguments cannot follow var-keyword argument") }
-fn invalid_lambda_kwds(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_lambda_kwds(input: ParserInput) -> ParseResult<Rc<Expression>> {
     right(pair(tok(TT::DOUBLESTAR), lambda_param), tok(TT::EQUAL))
         .map(move |a| {
             let error =
                 Error::with_underline(a.span(), "var-keyword argument cannot have default value");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         })
         .parse(input)
 }
@@ -4438,7 +4456,7 @@ fn invalid_lambda_kwds(input: ParserInput) -> ParseResult<Expression> {
 // invalid_double_type_comments:
 //     | TYPE_COMMENT NEWLINE TYPE_COMMENT NEWLINE INDENT {
 //         RAISE_SYNTAX_ERROR("Cannot have two type comments on def") }
-fn invalid_double_type_comments(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_double_type_comments(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(
         left(
             left(tok(TT::TYPE_COMMENT), tok(TT::NEWLINE)),
@@ -4449,7 +4467,7 @@ fn invalid_double_type_comments(input: ParserInput) -> ParseResult<Expression> {
     .map(move |a| {
         let error = Error::starting_from(a.span(), "Cannot have two type comments on def");
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     })
     .parse(input)
 }
@@ -4458,7 +4476,7 @@ fn invalid_double_type_comments(input: ParserInput) -> ParseResult<Expression> {
 //     | expression 'as' a=expression &(',' | ')' | ':') {
 //         RAISE_SYNTAX_ERROR_INVALID_TARGET(STAR_TARGETS, a) }
 // FIXME: message
-fn invalid_with_item(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_with_item(input: ParserInput) -> ParseResult<Rc<Expression>> {
     right(
         pair(expression, token(TT::KEYWORD, "as")),
         left(
@@ -4469,7 +4487,7 @@ fn invalid_with_item(input: ParserInput) -> ParseResult<Expression> {
     .map(move |a| {
         let error = Error::with_underline(a.span(), "Invalid target");
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     })
     .parse(input)
 }
@@ -4498,12 +4516,12 @@ fn invalid_for_target(input: ParserInput) -> ParseResult<Statement> {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "cannot use starred expression here") }
 //     | '(' a='**' expression ')' {
 //         RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "cannot use double starred expression here") }
-fn invalid_group(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_group(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(right(tok(TT::LPAR), starred_expression), tok(TT::RPAR))
         .map(move |a| {
             let error = Error::with_underline(a.span(), "cannot use starred expression here");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         })
         .or(left(
             right(
@@ -4516,7 +4534,7 @@ fn invalid_group(input: ParserInput) -> ParseResult<Expression> {
             let error =
                 Error::with_underline(a.span(), "cannot use double starred expression here");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .parse(input)
 }
@@ -4546,7 +4564,7 @@ fn invalid_import(input: ParserInput) -> ParseResult<Statement> {
 // invalid_import_from_targets:
 //     | import_from_as_names ',' NEWLINE {
 //         RAISE_SYNTAX_ERROR("trailing comma not allowed without surrounding parentheses") }
-fn invalid_import_from_targets(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_import_from_targets(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(import_from_as_names, pair(tok(TT::COMMA), tok(TT::NEWLINE)))
         .map(move |a| {
             let error = Error::with_underline(
@@ -4554,7 +4572,7 @@ fn invalid_import_from_targets(input: ParserInput) -> ParseResult<Expression> {
                 "trailing comma not allowed without surrounding parentheses",
             );
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         })
         .parse(input)
 }
@@ -4763,7 +4781,7 @@ fn invalid_try_stmt(input: ParserInput) -> ParseResult<Statement> {
 //     | a='except' '*'? expression ['as' NAME ] NEWLINE { RAISE_SYNTAX_ERROR("expected ':'") }
 //     | a='except' NEWLINE { RAISE_SYNTAX_ERROR("expected ':'") }
 //     | a='except' '*' (NEWLINE | ':') { RAISE_SYNTAX_ERROR("expected one or more exception types") }
-fn invalid_except_stmt(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_except_stmt(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(
         right(
             pair(token(TT::KEYWORD, "except"), maybe(tok(TT::STAR))),
@@ -4781,7 +4799,7 @@ fn invalid_except_stmt(input: ParserInput) -> ParseResult<Expression> {
         let error =
             Error::starting_from(a.span(), "multiple exception types must be parenthesized");
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     })
     .or(left(
         left(token_nodiscard(TT::KEYWORD, "except"), maybe(tok(TT::STAR))),
@@ -4796,13 +4814,13 @@ fn invalid_except_stmt(input: ParserInput) -> ParseResult<Expression> {
     .map(move |a| {
         let error = Error::starting_from(a.span(), "expected ':'");
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     }))
     .or(
         left(token_nodiscard(TT::KEYWORD, "except"), tok(TT::NEWLINE)).map(move |a| {
             let error = Error::starting_from(a.span(), "expected ':'");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }),
     )
     .or(left(
@@ -4812,7 +4830,7 @@ fn invalid_except_stmt(input: ParserInput) -> ParseResult<Expression> {
     .map(move |a| {
         let error = Error::starting_from(a.span(), "expected one or more exception types");
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     }))
     .parse(input)
 }
@@ -4843,7 +4861,7 @@ fn invalid_finally_stmt(input: ParserInput) -> ParseResult<Vec<Statement>> {
 //     | a='except' expression ['as' NAME ] ':' NEWLINE !INDENT {
 //         RAISE_INDENTATION_ERROR("expected an indented block after 'except' statement on line %d", a->lineno) }
 //     | a='except' ':' NEWLINE !INDENT { RAISE_INDENTATION_ERROR("expected an indented block after 'except' statement on line %d", a->lineno) }
-fn invalid_except_stmt_indent(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_except_stmt_indent(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(
         left(
             left(token_nodiscard(TT::KEYWORD, "except"), expression),
@@ -4857,7 +4875,7 @@ fn invalid_except_stmt_indent(input: ParserInput) -> ParseResult<Expression> {
             "expected an indented block after 'except' statement on line ",
         );
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     })
     .or(left(
         token_nodiscard(TT::KEYWORD, "except"),
@@ -4869,7 +4887,7 @@ fn invalid_except_stmt_indent(input: ParserInput) -> ParseResult<Expression> {
             "expected an indented block after 'except' statement on line ",
         );
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     }))
     .parse(input)
 }
@@ -4877,7 +4895,7 @@ fn invalid_except_stmt_indent(input: ParserInput) -> ParseResult<Expression> {
 // invalid_except_star_stmt_indent:
 //     | a='except' '*' expression ['as' NAME ] ':' NEWLINE !INDENT {
 //         RAISE_INDENTATION_ERROR("expected an indented block after 'except*' statement on line %d", a->lineno) }
-fn invalid_except_star_stmt_indent(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_except_star_stmt_indent(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(
         left(
             left(
@@ -4894,7 +4912,7 @@ fn invalid_except_star_stmt_indent(input: ParserInput) -> ParseResult<Expression
             "expected an indented block after 'except' statement on line ",
         );
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     })
     .parse(input)
 }
@@ -4926,7 +4944,7 @@ fn invalid_match_stmt(input: ParserInput) -> ParseResult<Statement> {
 //     | "case" patterns guard? NEWLINE { RAISE_SYNTAX_ERROR("expected ':'") }
 //     | a="case" patterns guard? ':' NEWLINE !INDENT {
 //         RAISE_INDENTATION_ERROR("expected an indented block after 'case' statement on line %d", a->lineno) }
-fn invalid_case_block(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_case_block(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(
         left(
             left(token_nodiscard(TT::NAME, "case"), patterns),
@@ -4937,7 +4955,7 @@ fn invalid_case_block(input: ParserInput) -> ParseResult<Expression> {
     .map(move |a| {
         let error = Error::starting_from(a.span(), "expected ':'");
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     })
     .or(left(
         left(
@@ -4952,7 +4970,7 @@ fn invalid_case_block(input: ParserInput) -> ParseResult<Expression> {
             "expected an indented block after 'case' statement on line ",
         );
         input.report_error(error);
-        Expression::Invalid(a.span())
+        Rc::new(Expression::Invalid(a.span()))
     }))
     .parse(input)
 }
@@ -4963,7 +4981,7 @@ fn invalid_case_block(input: ParserInput) -> ParseResult<Expression> {
 fn invalid_as_pattern(input: ParserInput) -> ParseResult<Pattern> {
     right(
         pair(or_pattern, token(TT::KEYWORD, "as")),
-        name.pred(|n| n.name.as_str() == "_"),
+        name.pred(|n| *n.name == *"_"),
     )
     .map(move |a| {
         let error = Error::starting_from(a.span(), "cannot use '_' as a target");
@@ -5002,7 +5020,7 @@ fn invalid_class_pattern(input: ParserInput) -> ParseResult<Pattern> {
 
 // invalid_class_argument_pattern[asdl_pattern_seq*]:
 //     | [positional_patterns ','] keyword_patterns ',' a=positional_patterns { a }
-fn invalid_class_argument_pattern(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_class_argument_pattern(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         maybe(left(positional_patterns, tok(TT::COMMA))),
         keyword_patterns,
@@ -5012,7 +5030,7 @@ fn invalid_class_argument_pattern(input: ParserInput) -> ParseResult<Expression>
             Some(p) if !p.is_empty() => p.first().unwrap().span().till(&q),
             _ => q.span(),
         };
-        Expression::Invalid(span)
+        Rc::new(Expression::Invalid(span))
     })
     .parse(input)
 }
@@ -5064,11 +5082,17 @@ fn invalid_if_stmt(input: ParserInput) -> ParseResult<Statement> {
 //         RAISE_INDENTATION_ERROR("expected an indented block after 'elif' statement on line %d", a->lineno) }
 fn invalid_elif_stmt(
     input: ParserInput,
-) -> ParseResult<(Vec<(Expression, Vec<Statement>)>, Option<Vec<Statement>>)> {
+) -> ParseResult<(
+    Vec<(Rc<Expression>, Vec<Statement>)>,
+    Option<Vec<Statement>>,
+)> {
     missing_block_or_colon_on_keyword_named_expr(input, "elif")
         .map(|s| {
             (
-                vec![(Expression::Invalid(s.span()), vec![Statement::Invalid])],
+                vec![(
+                    Rc::new(Expression::Invalid(s.span())),
+                    vec![Statement::Invalid],
+                )],
                 None,
             )
         })
@@ -5221,7 +5245,7 @@ fn invalid_class_def_raw(input: ParserInput) -> ParseResult<Statement> {
 //     | ','.double_starred_kvpair+ ',' invalid_kvpair
 //     | expression ':' a='*' bitwise_or { RAISE_SYNTAX_ERROR_STARTING_FROM(a, "cannot use a starred expression in a dictionary value") }
 //     | expression a=':' &('}'|',') { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "expression expected after dictionary key and ':'") }
-fn invalid_double_starred_kvpairs(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_double_starred_kvpairs(input: ParserInput) -> ParseResult<Rc<Expression>> {
     right(
         sep_by(double_starred_kvpair, TT::COMMA),
         right(tok(TT::COMMA), invalid_kvpair),
@@ -5236,7 +5260,7 @@ fn invalid_double_starred_kvpairs(input: ParserInput) -> ParseResult<Expression>
             "cannot use a starred expression in a dictionary value",
         );
         input.report_error(error);
-        Expression::Invalid(a.span)
+        Rc::new(Expression::Invalid(a.span))
     }))
     .or(left(
         right(expression, tok(TT::COLON)),
@@ -5246,7 +5270,7 @@ fn invalid_double_starred_kvpairs(input: ParserInput) -> ParseResult<Expression>
         let error =
             Error::starting_from(a.span(), "expression expected after dictionary key and ':'");
         input.report_error(error);
-        Expression::Invalid(a.span)
+        Rc::new(Expression::Invalid(a.span))
     }))
     .parse(input)
 }
@@ -5256,12 +5280,12 @@ fn invalid_double_starred_kvpairs(input: ParserInput) -> ParseResult<Expression>
 //         RAISE_ERROR_KNOWN_LOCATION(p, PyExc_SyntaxError, a->lineno, a->end_col_offset - 1, a->end_lineno, -1, "':' expected after dictionary key") }
 //     | expression ':' a='*' bitwise_or { RAISE_SYNTAX_ERROR_STARTING_FROM(a, "cannot use a starred expression in a dictionary value") }
 //     | expression a=':' &('}'|',') {RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "expression expected after dictionary key and ':'") }
-fn invalid_kvpair(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_kvpair(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(expression, not(tok(TT::COLON)))
         .map(move |a| {
             let error = Error::starting_from(a.span(), "':' expected after dictionary key");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         })
         .or(left(
             right(expression, tok(TT::COLON)),
@@ -5273,7 +5297,7 @@ fn invalid_kvpair(input: ParserInput) -> ParseResult<Expression> {
                 "cannot use a starred expression in a dictionary value",
             );
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .or(left(
             right(expression, tok(TT::COLON)),
@@ -5283,14 +5307,14 @@ fn invalid_kvpair(input: ParserInput) -> ParseResult<Expression> {
             let error =
                 Error::starting_from(a.span(), "expression expected after dictionary key and ':'");
             input.report_error(error);
-            Expression::Invalid(a.span)
+            Rc::new(Expression::Invalid(a.span))
         }))
         .parse(input)
 }
 
 // invalid_starred_expression:
 //     | a='*' expression '=' b=expression { RAISE_SYNTAX_ERROR_KNOWN_RANGE(a, b, "cannot assign to iterable argument unpacking") }
-fn invalid_starred_expression(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_starred_expression(input: ParserInput) -> ParseResult<Rc<Expression>> {
     pair(
         left(tok(TT::STAR), left(expression, tok(TT::EQUAL))),
         expression,
@@ -5302,7 +5326,7 @@ fn invalid_starred_expression(input: ParserInput) -> ParseResult<Expression> {
             "cannot assign to iterable argument unpacking",
         );
         input.report_error(error);
-        Expression::Invalid(a.span().till(&b))
+        Rc::new(Expression::Invalid(a.span().till(&b)))
     })
     .parse(input)
 }
@@ -5325,31 +5349,31 @@ fn invalid_starred_expression(input: ParserInput) -> ParseResult<Expression> {
 //     | '{' (yield_expr | star_expressions) '='? ['!' NAME] !'}' {
 //         PyErr_Occurred() ? NULL : RAISE_SYNTAX_ERROR_ON_NEXT_TOKEN("f-string: expecting '}'") }
 // FIXME: Raise error on next token
-fn invalid_replacement_field(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_replacement_field(input: ParserInput) -> ParseResult<Rc<Expression>> {
     right(tok(TT::LBRACE), tok(TT::EQUAL))
         .map(move |a| {
             let error =
                 Error::with_underline(a.span(), "f-string: valid expression required before '='");
             input.report_error(error);
-            Expression::Invalid(a.span)
+            Rc::new(Expression::Invalid(a.span))
         })
         .or(right(tok(TT::LBRACE), tok(TT::EXCLAMATION)).map(move |a| {
             let error =
                 Error::with_underline(a.span(), "f-string: valid expression required before '!'");
             input.report_error(error);
-            Expression::Invalid(a.span)
+            Rc::new(Expression::Invalid(a.span))
         }))
         .or(right(tok(TT::LBRACE), tok(TT::COLON)).map(move |a| {
             let error =
                 Error::with_underline(a.span(), "f-string: valid expression required before ':'");
             input.report_error(error);
-            Expression::Invalid(a.span)
+            Rc::new(Expression::Invalid(a.span))
         }))
         .or(right(tok(TT::LBRACE), tok(TT::RBRACE)).map(move |a| {
             let error =
                 Error::with_underline(a.span(), "f-string: valid expression required before '}'");
             input.report_error(error);
-            Expression::Invalid(a.span)
+            Rc::new(Expression::Invalid(a.span))
         }))
         .or(left(
             tok(TT::LBRACE),
@@ -5359,7 +5383,7 @@ fn invalid_replacement_field(input: ParserInput) -> ParseResult<Expression> {
             let error =
                 Error::starting_from(a.span(), "f-string: expecting a valid expression after '{'");
             input.report_error(error);
-            Expression::Invalid(a.span)
+            Rc::new(Expression::Invalid(a.span))
         }))
         .or(left(
             right(
@@ -5375,7 +5399,7 @@ fn invalid_replacement_field(input: ParserInput) -> ParseResult<Expression> {
             let error =
                 Error::starting_from(a.span(), "f-string: expecting '=', or '!', or ':', or '}'");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .or(right(
             pair(
@@ -5400,7 +5424,7 @@ fn invalid_replacement_field(input: ParserInput) -> ParseResult<Expression> {
         .map(move |a| {
             let error = Error::starting_from(a.span(), "f-string: expecting ':', or '}'");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .or(left(
             right(
@@ -5421,7 +5445,7 @@ fn invalid_replacement_field(input: ParserInput) -> ParseResult<Expression> {
         .map(move |a| {
             let error = Error::starting_from(a.span(), "f-string: expecting '}', or format specs");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .or(left(
             right(
@@ -5439,7 +5463,7 @@ fn invalid_replacement_field(input: ParserInput) -> ParseResult<Expression> {
         .map(move |a| {
             let error = Error::starting_from(a.span(), "f-string: expecting '}'");
             input.report_error(error);
-            Expression::Invalid(a.span())
+            Rc::new(Expression::Invalid(a.span()))
         }))
         .parse(input)
 }
@@ -5447,7 +5471,7 @@ fn invalid_replacement_field(input: ParserInput) -> ParseResult<Expression> {
 // invalid_conversion_character:
 //     | '!' &(':' | '}') { RAISE_SYNTAX_ERROR_ON_NEXT_TOKEN("f-string: missing conversion character") }
 //     | '!' !NAME { RAISE_SYNTAX_ERROR_ON_NEXT_TOKEN("f-string: invalid conversion character") }
-fn invalid_conversion_character(input: ParserInput) -> ParseResult<Expression> {
+fn invalid_conversion_character(input: ParserInput) -> ParseResult<Rc<Expression>> {
     left(
         tok(TT::EXCLAMATION),
         lookahead(tok(TT::COLON).or(tok(TT::RBRACE))),
@@ -5455,12 +5479,12 @@ fn invalid_conversion_character(input: ParserInput) -> ParseResult<Expression> {
     .map(move |a| {
         let error = Error::starting_from(a.span(), "f-string: missing conversion character");
         input.report_error(error);
-        Expression::Invalid(a.span)
+        Rc::new(Expression::Invalid(a.span))
     })
     .or(left(tok(TT::EXCLAMATION), not(name)).map(move |a| {
         let error = Error::starting_from(a.span(), "f-string: invalid conversion character");
         input.report_error(error);
-        Expression::Invalid(a.span)
+        Rc::new(Expression::Invalid(a.span))
     }))
     .parse(input)
 }

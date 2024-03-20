@@ -1,9 +1,10 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
-use super::tokenizer::{Token, TokenType};
-use  super::locations::Span;
 use super::error::Error;
+use super::locations::Span;
+use super::tokenizer::{Token, TokenType};
 use super::Expression;
 
 #[derive(Debug, Clone)]
@@ -12,10 +13,13 @@ pub enum ParseResult<'a, Output> {
     Err,
 }
 
-pub type ExpressionCache<'a> = HashMap<(usize, usize), ParseResult<'a, Expression>>;
+pub type ExpressionCache<'a> = HashMap<(usize, usize), ParseResult<'a, Rc<Expression>>>;
 
 #[derive(Debug, Clone, Copy)]
-pub struct ParserState<'a>(&'a RefCell<Vec<Error>>, pub(super) &'a RefCell<ExpressionCache<'a>>);
+pub struct ParserState<'a>(
+    &'a RefCell<Vec<Error>>,
+    pub(super) &'a RefCell<ExpressionCache<'a>>,
+);
 
 impl<'a> ParserState<'a> {
     pub fn new(errors: &'a RefCell<Vec<Error>>, cache: &'a RefCell<ExpressionCache<'a>>) -> Self {
@@ -65,7 +69,7 @@ impl<'a, T> ParseResult<'a, T> {
         O: FnOnce() -> Self,
     {
         match self {
-            Self::Ok(inner) => Self::Ok(inner),
+            Self::Ok(_) => self,
             Self::Err => op(),
         }
     }
@@ -344,10 +348,8 @@ pub(super) fn epsilon(input: ParserInput) -> ParseResult<()> {
 }
 
 pub(super) fn on_error_pass<'a, R>(parser: impl Parser<'a, R>) -> impl Parser<'a, R> {
-    move |input: ParserInput<'a>| {
-        match input.2 {
-            Pass::ErrorLocation => parser.parse(input),
-            Pass::FirstScan => ParseResult::Err,
-        }
+    move |input: ParserInput<'a>| match input.2 {
+        Pass::ErrorLocation => parser.parse(input),
+        Pass::FirstScan => ParseResult::Err,
     }
 }
