@@ -125,7 +125,7 @@ fn evaluate_expr(expression: &Expression) -> impl PyObject {
         Expression::FStringReplacement(expr, _) => todo!(),
         Expression::Name(name, _) => todo!(),
         Expression::Number(num, _) => todo!(),
-        Expression::Ellipsis(_) => return,
+        Expression::Ellipsis(_) => (),
         Expression::True(_) => todo!(),
         Expression::False(_) => todo!(),
         Expression::None(_) => todo!(),

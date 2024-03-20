@@ -53,7 +53,6 @@
 // #   Commit to the current alternative, even if it fails to parse.
 // #
 
-use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -514,7 +513,7 @@ fn import_from(input: ParserState) -> ParseResult<Rc<Statement>> {
                 },
                 items: items.clone(),
             }],
-            span.clone(),
+            *span,
         ))
     })
     .parse(input)
@@ -600,13 +599,18 @@ fn dotted_name(input: ParserState) -> ParseResult<Vec<Name>> {
 //     | NEWLINE INDENT statements DEDENT
 //     | simple_stmts
 fn block(input: ParserState) -> ParseResult<Vec<Rc<Statement>>> {
-    left(
+    // if let Some(result) = try_remember(input, block) {
+    //     return result;
+    // }
+    let result = left(
         right(pair(tok(TT::NEWLINE), tok(TT::INDENT)), statements),
         tok(TT::DEDENT),
     )
     .or(simple_stmts)
     .or(on_error_pass(invalid_block))
-    .parse(input)
+    .parse(input);
+    // save_result(input, block, &result);
+    result
 }
 
 // decorators: ('@' named_expression NEWLINE )*
@@ -1055,7 +1059,7 @@ fn while_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
         )
         .map(|((t, (e, b)), els)| {
             let s = t.span.till_block(&b).or(&els);
-            Rc::new(Statement::While(Rc::new(e), b, els, s))
+            Rc::new(Statement::While(e, b, els, s))
         }))
         .parse(input)
 }
@@ -2082,7 +2086,7 @@ fn is_bitwise_or(input: ParserState) -> ParseResult<(Operator, Rc<Expression>)> 
 fn bitwise_or_tail(input: ParserState) -> ParseResult<IncompleteExpression> {
     right(tok(TT::VBAR), pair(bitwise_xor, bitwise_or_tail))
         .map(|(e, t)| {
-            IncompleteExpression::BinaryOperation(Operator::BitwiseOr, Box::new(e), Box::new(t))
+            IncompleteExpression::BinaryOperation(Operator::BitwiseOr, e, Box::new(t))
         })
         .or(epsilon.map(|_| IncompleteExpression::Empty))
         .parse(input)
@@ -2106,7 +2110,7 @@ fn bitwise_or(input: ParserState) -> ParseResult<Rc<Expression>> {
                             Rc::new(Expression::BinaryOperation(
                                 Operator::BitwiseOr,
                                 current_expr,
-                                *expr,
+                                expr,
                                 s,
                             )),
                             tail,
@@ -2130,7 +2134,7 @@ fn bitwise_or(input: ParserState) -> ParseResult<Rc<Expression>> {
 fn bitwise_xor_tail(input: ParserState) -> ParseResult<IncompleteExpression> {
     right(tok(TT::CIRCUMFLEX), pair(bitwise_and, bitwise_xor_tail))
         .map(|(e, t)| {
-            IncompleteExpression::BinaryOperation(Operator::BitwiseXor, Box::new(e), Box::new(t))
+            IncompleteExpression::BinaryOperation(Operator::BitwiseXor, e, Box::new(t))
         })
         .or(epsilon.map(|_| IncompleteExpression::Empty))
         .parse(input)
@@ -2154,7 +2158,7 @@ fn bitwise_xor(input: ParserState) -> ParseResult<Rc<Expression>> {
                             Rc::new(Expression::BinaryOperation(
                                 Operator::BitwiseXor,
                                 current_expr,
-                                *expr,
+                                expr,
                                 s,
                             )),
                             tail,
@@ -2178,7 +2182,7 @@ fn bitwise_xor(input: ParserState) -> ParseResult<Rc<Expression>> {
 fn bitwise_and_tail(input: ParserState) -> ParseResult<IncompleteExpression> {
     right(tok(TT::VBAR), pair(shift_expr, bitwise_and_tail))
         .map(|(e, t)| {
-            IncompleteExpression::BinaryOperation(Operator::BitwiseAnd, Box::new(e), Box::new(t))
+            IncompleteExpression::BinaryOperation(Operator::BitwiseAnd, e, Box::new(t))
         })
         .or(epsilon.map(|_| IncompleteExpression::Empty))
         .parse(input)
@@ -2202,7 +2206,7 @@ fn bitwise_and(input: ParserState) -> ParseResult<Rc<Expression>> {
                             Rc::new(Expression::BinaryOperation(
                                 Operator::BitwiseAnd,
                                 current_expr,
-                                *expr,
+                                expr,
                                 s,
                             )),
                             tail,
@@ -2229,7 +2233,7 @@ fn shift_expr_tail(input: ParserState) -> ParseResult<IncompleteExpression> {
         tok(TT::LEFTSHIFT).or(tok(TT::RIGHTSHIFT)),
         pair(sum, shift_expr_tail),
     )
-    .map(|(o, (e, t))| IncompleteExpression::BinaryOperation(o.into(), Box::new(e), Box::new(t)))
+    .map(|(o, (e, t))| IncompleteExpression::BinaryOperation(o.into(), e, Box::new(t)))
     .or(epsilon.map(|_| IncompleteExpression::Empty))
     .parse(input)
 }
@@ -2249,7 +2253,7 @@ fn shift_expr(input: ParserState) -> ParseResult<Rc<Expression>> {
                     IncompleteExpression::BinaryOperation(op, expr, tail) => {
                         let s = expr.span().till(&current_expr);
                         (
-                            Rc::new(Expression::BinaryOperation(op, current_expr, *expr, s)),
+                            Rc::new(Expression::BinaryOperation(op, current_expr, expr, s)),
                             tail,
                         )
                     }
@@ -2275,7 +2279,7 @@ fn shift_expr(input: ParserState) -> ParseResult<Rc<Expression>> {
 fn sum_tail(input: ParserState) -> ParseResult<IncompleteExpression> {
     pair(tok(TT::PLUS).or(tok(TT::MINUS)), pair(term, sum_tail))
         .map(|(o, (e, t))| {
-            IncompleteExpression::BinaryOperation(o.into(), Box::new(e), Box::new(t))
+            IncompleteExpression::BinaryOperation(o.into(), e, Box::new(t))
         })
         .or(epsilon.map(|_| IncompleteExpression::Empty))
         .parse(input)
@@ -2296,7 +2300,7 @@ fn sum(input: ParserState) -> ParseResult<Rc<Expression>> {
                     IncompleteExpression::BinaryOperation(op, expr, tail) => {
                         let s = expr.span().till(&current_expr);
                         (
-                            Rc::new(Expression::BinaryOperation(op, current_expr, *expr, s)),
+                            Rc::new(Expression::BinaryOperation(op, current_expr, expr, s)),
                             tail,
                         )
                     }
@@ -2328,7 +2332,7 @@ fn term_tail(input: ParserState) -> ParseResult<IncompleteExpression> {
             .or(tok(TT::AT)),
         pair(factor, term_tail),
     )
-    .map(|(o, (e, t))| IncompleteExpression::BinaryOperation(o.into(), Box::new(e), Box::new(t)))
+    .map(|(o, (e, t))| IncompleteExpression::BinaryOperation(o.into(), e, Box::new(t)))
     .or(epsilon.map(|_| IncompleteExpression::Empty))
     .parse(input)
 }
@@ -2348,7 +2352,7 @@ fn term(input: ParserState) -> ParseResult<Rc<Expression>> {
                     IncompleteExpression::BinaryOperation(op, expr, tail) => {
                         let s = expr.span().till(&current_expr);
                         (
-                            Rc::new(Expression::BinaryOperation(op, current_expr, *expr, s)),
+                            Rc::new(Expression::BinaryOperation(op, current_expr, expr, s)),
                             tail,
                         )
                     }
@@ -2759,8 +2763,8 @@ fn lambda_star_etc(input: ParserState) -> ParseResult<Rc<Expression>> {
             Rc::new(Expression::Parameters(p, u))
         }))
         .or(lambda_kwds.map(|k| match k.as_ref() {
-            Expression::Parameters(_, _) => return k,
-            _ => return Rc::new(Expression::Invalid(k.span())),
+            Expression::Parameters(_, _) => k,
+            _ => Rc::new(Expression::Invalid(k.span())),
         }))
         .parse(input)
 }
@@ -2836,7 +2840,7 @@ fn fstring_middle(input: ParserState) -> ParseResult<Rc<Expression>> {
             if let Expression::FStringReplacement(f, s) = fs.as_ref() {
                 Rc::new(Expression::FString(
                     FString::Interpolated(f.clone()),
-                    s.clone(),
+                    *s,
                 ))
             } else {
                 fs

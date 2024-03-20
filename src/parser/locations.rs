@@ -84,7 +84,7 @@ impl Span {
         }
     }
 
-    pub(super) fn till_block<R: Locatable>(&self, block: &Vec<R>) -> Self {
+    pub(super) fn till_block<R: Locatable>(&self, block: &[R]) -> Self {
         match self {
             Self::Indetermined => {
                 if block.is_empty() {
@@ -336,9 +336,9 @@ impl Locatable for Slice {
             Self::Simple(expr) => expr.span(),
             Self::Delimited(l, m, r) => {
                 if l.is_some() {
-                    l.as_ref().unwrap().span().or(&m).or(&r)
+                    l.as_ref().unwrap().span().or(m).or(r)
                 } else if m.is_some() {
-                    m.as_ref().unwrap().span().or(&r)
+                    m.as_ref().unwrap().span().or(r)
                 } else if r.is_some() {
                     r.as_ref().unwrap().span()
                 } else {
@@ -380,7 +380,7 @@ impl Locatable for Pattern {
             Self::Class(expr, ps) => expr.span().till_block(ps),
             Self::Disjunction(ps) => ps.span(),
             Self::KeyValue(expr, pat) => expr.span().till(pat.as_ref()),
-            Self::Invalid(s) => s.clone(),
+            Self::Invalid(s) => *s,
         }
     }
 }
@@ -399,6 +399,6 @@ impl Locatable for FunctionDeclaration {
 
 impl Locatable for Parameter {
     fn span(&self) -> Span {
-        self.name.span.clone()
+        self.name.span
     }
 }

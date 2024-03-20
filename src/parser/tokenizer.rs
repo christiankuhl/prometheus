@@ -362,11 +362,11 @@ impl Tokenizer {
                 .iter()
                 .filter(|t| t.typ == TokenType::DEDENT)
                 .count();
-        let span = self.current.span.clone();
+        let span = self.current.span;
         for _ in 0..lvl {
             self.tokens.push(Token {
                 typ: TokenType::DEDENT,
-                span: span.clone(),
+                span,
                 lexeme: "".to_string(),
             });
         }
@@ -390,7 +390,7 @@ impl Tokenizer {
 
                 if let Some(m) = WHITESPACE.find(&line[self.start..]) {
                     let mut current_indent = *self.indent.last().unwrap();
-                    let line_only_comment = ONLY_COMMENT.is_match(&line);
+                    let line_only_comment = ONLY_COMMENT.is_match(line);
                     if self.start == 0
                         && m.end() != current_indent
                         && self.paren_lvl == 0
@@ -510,14 +510,12 @@ impl Tokenizer {
                 }
             }
         }
-        if self.tokens_added > 0 && !self.in_string {
-            if self.paren_lvl == 0 {
-                let mut token = Token::default();
-                token.span = Span::new(lineno, self.start, lineno, self.end);
-                token.lexeme = "".to_string();
-                token.typ = TokenType::NEWLINE;
-                self.tokens.push(token);
-            }
+        if self.tokens_added > 0 && !self.in_string && self.paren_lvl == 0 {
+            let mut token = Token::default();
+            token.span = Span::new(lineno, self.start, lineno, self.end);
+            token.lexeme = "".to_string();
+            token.typ = TokenType::NEWLINE;
+            self.tokens.push(token);
         }
         Ok(())
     }

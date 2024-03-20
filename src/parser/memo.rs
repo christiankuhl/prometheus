@@ -6,19 +6,19 @@ use super::{Expression, ParseResult, ParserState, Statement};
 
 pub(super) fn try_remember<R>(
     input: ParserState,
-    caller: fn(ParserState) -> ParseResult<Rc<R>>,
-) -> Option<ParseResult<Rc<R>>>
+    caller: fn(ParserState) -> ParseResult<R>,
+) -> Option<ParseResult<R>>
 where
     R: Cacheable,
 {
     let key = (input.tokens.as_ptr() as usize, caller as usize);
-    R::try_load(&input.cache, key)
+    R::try_load(input.cache, key)
 }
 
 pub(super) fn save_result<'a, R>(
     input: ParserState<'a>,
-    caller: fn(ParserState) -> ParseResult<Rc<R>>,
-    result: &ParseResult<'a, Rc<R>>,
+    caller: fn(ParserState) -> ParseResult<R>,
+    result: &ParseResult<'a, R>,
 ) where
     R: Cacheable,
 {
@@ -26,15 +26,15 @@ pub(super) fn save_result<'a, R>(
     R::store(input.cache, key, result);
 }
 
-trait Cacheable {
+pub(super) trait Cacheable: Sized {
     fn try_load<'a>(
         cache: &'a RefCell<ParserCache<'a>>,
         key: (usize, usize),
-    ) -> Option<ParseResult<'a, Rc<Self>>>;
+    ) -> Option<ParseResult<'a, Self>>;
     fn store<'a>(
         cache: &'a RefCell<ParserCache<'a>>,
         key: (usize, usize),
-        value: &ParseResult<'a, Rc<Self>>,
+        value: &ParseResult<'a, Self>,
     );
 }
 
@@ -42,7 +42,7 @@ trait Cacheable {
 pub(super) struct ParserCache<'a> {
     expressions: HashMap<(usize, usize), ParseResult<'a, Rc<Expression>>>,
     statements: HashMap<(usize, usize), ParseResult<'a, Rc<Statement>>>,
-    blocks: HashMap<(usize, usize), ParseResult<'a, Rc<Vec<Statement>>>>,
+    blocks: HashMap<(usize, usize), ParseResult<'a, Vec<Rc<Statement>>>>,
 }
 
 impl<'a> ParserCache<'a> {
@@ -55,34 +55,50 @@ impl<'a> ParserCache<'a> {
     }
 }
 
-impl Cacheable for Expression {
+impl Cacheable for Rc<Expression> {
     fn try_load<'a>(
         cache: &'a RefCell<ParserCache<'a>>,
         key: (usize, usize),
-    ) -> Option<ParseResult<'a, Rc<Self>>> {
+    ) -> Option<ParseResult<'a, Self>> {
         cache.borrow().expressions.get(&key).cloned()
     }
     fn store<'a>(
         cache: &'a RefCell<ParserCache<'a>>,
         key: (usize, usize),
-        value: &ParseResult<'a, Rc<Self>>,
+        value: &ParseResult<'a, Self>,
     ) {
         cache.borrow_mut().expressions.insert(key, value.clone());
     }
 }
 
-impl Cacheable for Statement {
+impl Cacheable for Rc<Statement> {
     fn try_load<'a>(
         cache: &'a RefCell<ParserCache<'a>>,
         key: (usize, usize),
-    ) -> Option<ParseResult<'a, Rc<Self>>> {
+    ) -> Option<ParseResult<'a, Self>> {
         cache.borrow().statements.get(&key).cloned()
     }
     fn store<'a>(
         cache: &'a RefCell<ParserCache<'a>>,
         key: (usize, usize),
-        value: &ParseResult<'a, Rc<Self>>,
+        value: &ParseResult<'a, Self>,
     ) {
         cache.borrow_mut().statements.insert(key, value.clone());
+    }
+}
+
+impl Cacheable for Vec<Rc<Statement>> {
+    fn try_load<'a>(
+        cache: &'a RefCell<ParserCache<'a>>,
+        key: (usize, usize),
+    ) -> Option<ParseResult<'a, Self>> {
+        cache.borrow().blocks.get(&key).cloned()
+    }
+    fn store<'a>(
+        cache: &'a RefCell<ParserCache<'a>>,
+        key: (usize, usize),
+        value: &ParseResult<'a, Self>,
+    ) {
+        cache.borrow_mut().blocks.insert(key, value.clone());
     }
 }

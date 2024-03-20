@@ -45,7 +45,7 @@ pub enum Statement {
         Span,
     ),
     While(
-        Rc<Rc<Expression>>,
+        Rc<Expression>,
         Vec<Rc<Statement>>,
         Option<Vec<Rc<Statement>>>,
         Span,
@@ -245,7 +245,7 @@ pub(crate) enum IncompleteExpression {
     Subscript(Name, Box<IncompleteExpression>),
     Call(Arguments, Box<IncompleteExpression>),
     Slice(Vec<Slice>, Box<IncompleteExpression>),
-    BinaryOperation(Operator, Box<Rc<Expression>>, Box<IncompleteExpression>),
+    BinaryOperation(Operator, Rc<Expression>, Box<IncompleteExpression>),
     PrimaryGenexp(Box<Rc<Expression>>, Box<IncompleteExpression>), // ???
     Invalid,
     Empty,

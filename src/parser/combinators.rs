@@ -26,7 +26,7 @@ pub struct ParserState<'a> {
 }
 
 impl<'a> ParserState<'a> {
-    pub fn new(
+    pub(super) fn new(
         input: &'a [Token],
         errors: &'a RefCell<Vec<Error>>,
         cache: &'a RefCell<ParserCache<'a>>,
@@ -43,11 +43,13 @@ impl<'a> ParserState<'a> {
         self.errors.borrow_mut().push(error);
     }
     pub fn next_span(&self) -> Span {
-        self.tokens.first().unwrap().span.clone() // FIXME
+        match self.tokens.first() {
+            Some(token) => token.span,
+            None => unreachable!(),
+        }
     }
-    pub fn consume(mut self) -> Self {
-        self.tokens = &self.tokens[1..];
-        self
+    pub fn consume(&self) -> Self {
+        Self { tokens: &self.tokens[1..], errors: self.errors, cache: self.cache, pass: self.pass }
     }
 }
 
@@ -134,7 +136,7 @@ pub(super) trait Parser<'a, Output> {
     where
         Self: Sized + 'a,
         Output: 'a,
-        F: Fn() -> () + 'a,
+        F: Fn() + 'a,
     {
         BoxedParser::new(map_err(self, error_fn))
     }
@@ -199,7 +201,7 @@ pub(super) fn map_err<'a, F, A>(
     error_fn: F,
 ) -> impl Fn(ParserState<'a>) -> ParseResult<'a, A>
 where
-    F: Fn() -> (),
+    F: Fn(),
 {
     move |input| match parser.parse(input) {
         ParseResult::Err => {
