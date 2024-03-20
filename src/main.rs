@@ -53,16 +53,16 @@ fn run_repl() -> ReplResult<()> {
                 let _ = rl.add_history_entry(line.as_str());
                 let mut tokenizer = Tokenizer::new().expect("Could not build tokenizer.");
                 match tokenizer.tokenize(std::iter::once(line)) {
-                    ParserState::Ok => {
+                    LexerState::Ok => {
                         if let Ok(tok) = tokenizer.extract() {
                             tokens.extend(tok);
                         }
                     }
-                    ParserState::Error(msg) => {
+                    LexerState::Error(msg) => {
                         println!("{}", msg);
                         continue;
                     }
-                    ParserState::ContinuationNeeded => loop {
+                    LexerState::ContinuationNeeded => loop {
                         let continuation = rl.readline("... ");
                         match continuation {
                             Ok(line) => {
@@ -73,7 +73,7 @@ fn run_repl() -> ReplResult<()> {
                                     break;
                                 }
                                 match tokenizer.tokenize(std::iter::once(line)) {
-                                    ParserState::Error(msg) => {
+                                    LexerState::Error(msg) => {
                                         println!("{}", msg);
                                         break;
                                     }

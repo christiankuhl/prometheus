@@ -335,18 +335,22 @@ impl Tokenizer {
             tokens_added: 0,
         })
     }
-    pub fn tokenize(&mut self, input: impl Iterator<Item = String>) -> ParserState {
-        for (lineno, line) in input.enumerate() {
+    pub fn tokenize<I>(&mut self, input: I) -> LexerState
+    where
+        I: IntoIterator,
+        I::Item: AsRef<str>,
+    {
+        for (lineno, line) in input.into_iter().enumerate() {
             // println!("line {lineno}:");
-            match self.tokenize_line(line.as_str(), lineno) {
+            match self.tokenize_line(line.as_ref(), lineno) {
                 Ok(()) => continue,
-                Err(s) => return ParserState::Error(s),
+                Err(s) => return LexerState::Error(s),
             }
         }
         if self.in_string || self.paren_lvl > 0 {
-            return ParserState::ContinuationNeeded;
+            return LexerState::ContinuationNeeded;
         }
-        ParserState::Ok
+        LexerState::Ok
     }
     pub fn extract(self) -> Result<Vec<Token>, String> {
         Ok(self.tokens)
@@ -566,6 +570,14 @@ where
     }
 }
 
+pub fn tokenize_string<I>(input: I) -> Result<Vec<Token>, String> where I: AsRef<str> {
+    let input_string = input.as_ref().to_owned();
+    let lines = input_string.lines();
+    let mut tokenizer = Tokenizer::new().expect("Could not build tokenizer.");
+    tokenizer.tokenize(lines.into_iter());
+    tokenizer.finalize()
+}
+
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
 where
     P: AsRef<Path>,
@@ -574,7 +586,7 @@ where
     Ok(io::BufReader::new(file).lines())
 }
 
-pub enum ParserState {
+pub enum LexerState {
     Ok,
     ContinuationNeeded,
     Error(String),
