@@ -1,30 +1,14 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
 
 use super::error::Error;
 use super::locations::Span;
 use super::tokenizer::{Token, TokenType};
-use super::Expression;
+use super::memo::ParserCache;
 
 #[derive(Debug, Clone)]
 pub enum ParseResult<'a, Output> {
-    Ok((Output, ParserInput<'a>)),
+    Ok((Output, ParserState<'a>)),
     Err,
-}
-
-pub type ExpressionCache<'a> = HashMap<(usize, usize), ParseResult<'a, Rc<Expression>>>;
-
-#[derive(Debug, Clone, Copy)]
-pub struct ParserState<'a>(
-    &'a RefCell<Vec<Error>>,
-    pub(super) &'a RefCell<ExpressionCache<'a>>,
-);
-
-impl<'a> ParserState<'a> {
-    pub fn new(errors: &'a RefCell<Vec<Error>>, cache: &'a RefCell<ExpressionCache<'a>>) -> Self {
-        Self(errors, cache)
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -34,23 +18,36 @@ pub enum Pass {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct ParserInput<'a>(pub(super) &'a [Token], pub(super) ParserState<'a>, Pass);
-
-impl<'a> ParserInput<'a> {
-    pub fn new(input: &'a [Token], state: ParserState<'a>, pass: Pass) -> Self {
-        Self(input, state, pass)
-    }
-    pub fn report_error(&self, error: Error) {
-        self.1.report_error(error)
-    }
-    pub fn next_span(&self) -> Span {
-        self.0.first().unwrap().span.clone() // FIXME
-    }
+pub struct ParserState<'a> {
+    pub(super) tokens: &'a [Token],
+    pub(super) errors: &'a RefCell<Vec<Error>>,
+    pub(super) cache: &'a RefCell<ParserCache<'a>>,
+    pass: Pass,
 }
 
 impl<'a> ParserState<'a> {
-    pub(super) fn report_error(&self, error: Error) {
-        self.0.borrow_mut().push(error);
+    pub fn new(
+        input: &'a [Token],
+        errors: &'a RefCell<Vec<Error>>,
+        cache: &'a RefCell<ParserCache<'a>>,
+        pass: Pass,
+    ) -> Self {
+        Self {
+            tokens: input,
+            errors,
+            cache,
+            pass,
+        }
+    }
+    pub fn report_error(&self, error: Error) {
+        self.errors.borrow_mut().push(error);
+    }
+    pub fn next_span(&self) -> Span {
+        self.tokens.first().unwrap().span.clone() // FIXME
+    }
+    pub fn consume(mut self) -> Self {
+        self.tokens = &self.tokens[1..];
+        self
     }
 }
 
@@ -75,7 +72,7 @@ impl<'a, T> ParseResult<'a, T> {
     }
     pub(super) fn map<U, F>(self, op: F) -> ParseResult<'a, U>
     where
-        F: FnOnce((T, ParserInput<'a>)) -> (U, ParserInput<'a>),
+        F: FnOnce((T, ParserState<'a>)) -> (U, ParserState<'a>),
     {
         match self {
             Self::Ok(inner) => ParseResult::Ok(op(inner)),
@@ -84,7 +81,7 @@ impl<'a, T> ParseResult<'a, T> {
     }
     pub(super) fn and_then<U, F>(self, op: F) -> ParseResult<'a, U>
     where
-        F: FnOnce((T, ParserInput<'a>)) -> ParseResult<'a, U>,
+        F: FnOnce((T, ParserState<'a>)) -> ParseResult<'a, U>,
     {
         match self {
             Self::Ok(inner) => op(inner),
@@ -100,7 +97,7 @@ impl<'a, T> ParseResult<'a, T> {
 }
 
 pub(super) trait Parser<'a, Output> {
-    fn parse(&self, input: ParserInput<'a>) -> ParseResult<'a, Output>;
+    fn parse(&self, input: ParserState<'a>) -> ParseResult<'a, Output>;
     fn map<F, MappedOutput>(self, map_fn: F) -> BoxedParser<'a, MappedOutput>
     where
         Self: Sized + 'a,
@@ -145,9 +142,9 @@ pub(super) trait Parser<'a, Output> {
 
 impl<'a, F, Output> Parser<'a, Output> for F
 where
-    F: Fn(ParserInput<'a>) -> ParseResult<Output>,
+    F: Fn(ParserState<'a>) -> ParseResult<Output>,
 {
-    fn parse(&self, input: ParserInput<'a>) -> ParseResult<'a, Output> {
+    fn parse(&self, input: ParserState<'a>) -> ParseResult<'a, Output> {
         self(input)
     }
 }
@@ -165,7 +162,7 @@ impl<'a, Output> BoxedParser<'a, Output> {
 }
 
 impl<'a, Output> Parser<'a, Output> for BoxedParser<'a, Output> {
-    fn parse(&self, input: ParserInput<'a>) -> ParseResult<'a, Output> {
+    fn parse(&self, input: ParserState<'a>) -> ParseResult<'a, Output> {
         self.parser.parse(input)
     }
 }
@@ -186,7 +183,7 @@ pub(super) fn pair<'a, R1, R2>(
 pub(super) fn map<'a, F, A, B>(
     parser: impl Parser<'a, A>,
     map_fn: F,
-) -> impl Fn(ParserInput<'a>) -> ParseResult<'a, B>
+) -> impl Fn(ParserState<'a>) -> ParseResult<'a, B>
 where
     F: Fn(A) -> B,
 {
@@ -200,7 +197,7 @@ where
 pub(super) fn map_err<'a, F, A>(
     parser: impl Parser<'a, A>,
     error_fn: F,
-) -> impl Fn(ParserInput<'a>) -> ParseResult<'a, A>
+) -> impl Fn(ParserState<'a>) -> ParseResult<'a, A>
 where
     F: Fn() -> (),
 {
@@ -278,10 +275,10 @@ pub(super) fn maybe<'a, R>(parser: impl Parser<'a, R>) -> impl Parser<'a, Option
     }
 }
 
-pub(super) fn tok(expected_type: TokenType) -> impl Fn(ParserInput) -> ParseResult<Token> {
-    move |input| match input.0.first() {
+pub(super) fn tok(expected_type: TokenType) -> impl Fn(ParserState) -> ParseResult<Token> {
+    move |input| match input.tokens.first() {
         Some(token) if token.typ == expected_type => {
-            ParseResult::Ok((token.clone(), ParserInput(&input.0[1..], input.1, input.2)))
+            ParseResult::Ok((token.clone(), input.consume()))
         }
         _ => ParseResult::Err,
     }
@@ -290,10 +287,10 @@ pub(super) fn tok(expected_type: TokenType) -> impl Fn(ParserInput) -> ParseResu
 pub(super) fn token(
     expected_type: TokenType,
     expected_lexeme: &'static str,
-) -> impl Fn(ParserInput) -> ParseResult<()> {
-    move |input| match input.0.first() {
+) -> impl Fn(ParserState) -> ParseResult<()> {
+    move |input| match input.tokens.first() {
         Some(token) if token.typ == expected_type && token.lexeme.as_str() == expected_lexeme => {
-            ParseResult::Ok(((), ParserInput(&input.0[1..], input.1, input.2)))
+            ParseResult::Ok(((), input.consume()))
         }
         _ => ParseResult::Err,
     }
@@ -302,10 +299,10 @@ pub(super) fn token(
 pub(super) fn token_nodiscard(
     expected_type: TokenType,
     expected_lexeme: &'static str,
-) -> impl Fn(ParserInput) -> ParseResult<Token> {
-    move |input| match input.0.first() {
+) -> impl Fn(ParserState) -> ParseResult<Token> {
+    move |input| match input.tokens.first() {
         Some(token) if token.typ == expected_type && token.lexeme.as_str() == expected_lexeme => {
-            ParseResult::Ok((token.clone(), ParserInput(&input.0[1..], input.1, input.2)))
+            ParseResult::Ok((token.clone(), input.consume()))
         }
         _ => ParseResult::Err,
     }
@@ -343,12 +340,12 @@ pub(super) fn lookahead<'a, R>(parser: impl Parser<'a, R>) -> impl Parser<'a, ()
     }
 }
 
-pub(super) fn epsilon(input: ParserInput) -> ParseResult<()> {
+pub(super) fn epsilon(input: ParserState) -> ParseResult<()> {
     ParseResult::Ok(((), input))
 }
 
 pub(super) fn on_error_pass<'a, R>(parser: impl Parser<'a, R>) -> impl Parser<'a, R> {
-    move |input: ParserInput<'a>| match input.2 {
+    move |input: ParserState<'a>| match input.pass {
         Pass::ErrorLocation => parser.parse(input),
         Pass::FirstScan => ParseResult::Err,
     }
