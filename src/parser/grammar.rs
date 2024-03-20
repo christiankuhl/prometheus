@@ -661,16 +661,19 @@ fn class_def_raw(input: ParserState) -> ParseResult<Rc<Statement>> {
         .or(pair(
             right(token(TT::KEYWORD, "class"), pair(name, maybe(type_params))),
             pair(
-                maybe(right(tok(TT::LPAR), left(arguments, tok(TT::RPAR)))),
+                maybe(right(tok(TT::LPAR), left(maybe(arguments), tok(TT::RPAR)))),
                 right(tok(TT::COLON), block),
             ),
         )
         .map(|((name, ts), (ancestors, body))| {
             let span = name.span().till_block(&body);
-            let ancestors = match ancestors.as_deref() {
-                Some(Expression::Arguments(args, _)) => args.clone(),
+            let ancestors = match ancestors {
+                Some(ancestors) => match ancestors.as_deref() {
+                    Some(Expression::Arguments(args, _)) => args.clone(),
+                    None => Arguments::empty(),
+                    _ => return Rc::new(Statement::Invalid),
+                },
                 None => Arguments::empty(),
-                _ => return Rc::new(Statement::Invalid),
             };
             Rc::new(Statement::ClassDefinition(
                 ClassDefinition {
