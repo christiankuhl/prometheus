@@ -112,6 +112,9 @@ fn eval(input: ParserState) -> ParseResult<Vec<Rc<Expression>>> {
 }
 
 // func_type: '(' [type_expressions] ')' '->' expression NEWLINE* ENDMARKER
+fn func_type(input: ParserState) -> ParseResult<Rc<Expression>> {
+    todo!()
+}
 
 // # GENERAL STATEMENTS
 // # ==================
@@ -2089,9 +2092,7 @@ fn is_bitwise_or(input: ParserState) -> ParseResult<(Operator, Rc<Expression>)> 
 //     | epsilon
 fn bitwise_or_tail(input: ParserState) -> ParseResult<IncompleteExpression> {
     right(tok(TT::VBAR), pair(bitwise_xor, bitwise_or_tail))
-        .map(|(e, t)| {
-            IncompleteExpression::BinaryOperation(Operator::BitwiseOr, e, Box::new(t))
-        })
+        .map(|(e, t)| IncompleteExpression::BinaryOperation(Operator::BitwiseOr, e, Box::new(t)))
         .or(epsilon.map(|_| IncompleteExpression::Empty))
         .parse(input)
 }
@@ -2137,9 +2138,7 @@ fn bitwise_or(input: ParserState) -> ParseResult<Rc<Expression>> {
 //     | epsilon
 fn bitwise_xor_tail(input: ParserState) -> ParseResult<IncompleteExpression> {
     right(tok(TT::CIRCUMFLEX), pair(bitwise_and, bitwise_xor_tail))
-        .map(|(e, t)| {
-            IncompleteExpression::BinaryOperation(Operator::BitwiseXor, e, Box::new(t))
-        })
+        .map(|(e, t)| IncompleteExpression::BinaryOperation(Operator::BitwiseXor, e, Box::new(t)))
         .or(epsilon.map(|_| IncompleteExpression::Empty))
         .parse(input)
 }
@@ -2185,9 +2184,7 @@ fn bitwise_xor(input: ParserState) -> ParseResult<Rc<Expression>> {
 //     | epsilon
 fn bitwise_and_tail(input: ParserState) -> ParseResult<IncompleteExpression> {
     right(tok(TT::VBAR), pair(shift_expr, bitwise_and_tail))
-        .map(|(e, t)| {
-            IncompleteExpression::BinaryOperation(Operator::BitwiseAnd, e, Box::new(t))
-        })
+        .map(|(e, t)| IncompleteExpression::BinaryOperation(Operator::BitwiseAnd, e, Box::new(t)))
         .or(epsilon.map(|_| IncompleteExpression::Empty))
         .parse(input)
 }
@@ -2282,9 +2279,7 @@ fn shift_expr(input: ParserState) -> ParseResult<Rc<Expression>> {
 //     | epsilon
 fn sum_tail(input: ParserState) -> ParseResult<IncompleteExpression> {
     pair(tok(TT::PLUS).or(tok(TT::MINUS)), pair(term, sum_tail))
-        .map(|(o, (e, t))| {
-            IncompleteExpression::BinaryOperation(o.into(), e, Box::new(t))
-        })
+        .map(|(o, (e, t))| IncompleteExpression::BinaryOperation(o.into(), e, Box::new(t)))
         .or(epsilon.map(|_| IncompleteExpression::Empty))
         .parse(input)
 }
@@ -2459,7 +2454,7 @@ fn primary(input: ParserState) -> ParseResult<Rc<Expression>> {
                     IncompleteExpression::PrimaryGenexp(genexp, tail) => {
                         let s = current_expr.span().till(&genexp);
                         (
-                            Rc::new(Expression::PrimaryGenexp(current_expr, *genexp, s)),
+                            Rc::new(Expression::PrimaryGenexp(current_expr, genexp, s)),
                             tail,
                         )
                     }
@@ -2502,7 +2497,7 @@ fn primary_tail(input: ParserState) -> ParseResult<IncompleteExpression> {
         )
         .map(|(n, tail)| IncompleteExpression::Slice(n, Box::new(tail))))
         .or(pair(genexp, primary_tail)
-            .map(|(g, tail)| IncompleteExpression::PrimaryGenexp(Box::new(g), Box::new(tail))))
+            .map(|(g, tail)| IncompleteExpression::PrimaryGenexp(g, Box::new(tail))))
         .or(epsilon.map(|_| IncompleteExpression::Empty))
         .parse(input)
 }
@@ -3456,7 +3451,7 @@ fn t_primary(input: ParserState) -> ParseResult<Rc<Expression>> {
                     IncompleteExpression::PrimaryGenexp(genexp, tail) => {
                         let s = current_expr.span().till(&genexp);
                         (
-                            Rc::new(Expression::PrimaryGenexp(current_expr, *genexp, s)),
+                            Rc::new(Expression::PrimaryGenexp(current_expr, genexp, s)),
                             tail,
                         )
                     }
@@ -3493,7 +3488,7 @@ fn t_primary_tail(input: ParserState) -> ParseResult<IncompleteExpression> {
     )
     .map(|(s, tail)| IncompleteExpression::Slice(s, Box::new(tail))))
     .or(pair(left(genexp, lookahead(t_lookahead)), t_primary_tail)
-        .map(|(g, tail)| IncompleteExpression::PrimaryGenexp(Box::new(g), Box::new(tail))))
+        .map(|(g, tail)| IncompleteExpression::PrimaryGenexp(g, Box::new(tail))))
     .or(pair(
         right(
             tok(TT::LPAR),

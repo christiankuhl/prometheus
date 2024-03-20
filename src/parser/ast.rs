@@ -248,7 +248,7 @@ pub(crate) enum IncompleteExpression {
     Call(Arguments, Box<IncompleteExpression>),
     Slice(Vec<Slice>, Box<IncompleteExpression>),
     BinaryOperation(Operator, Rc<Expression>, Box<IncompleteExpression>),
-    PrimaryGenexp(Box<Rc<Expression>>, Box<IncompleteExpression>), // ???
+    PrimaryGenexp(Rc<Expression>, Box<IncompleteExpression>), // ???
     Invalid,
     Empty,
 }
