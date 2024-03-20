@@ -5,6 +5,8 @@ use super::tokenizer::{
 
 use std::rc::Rc;
 
+pub type Block = Vec<Rc<Statement>>;
+
 #[derive(Debug, Clone)]
 pub enum Statement {
     FunctionDeclaration(FunctionDeclaration, Vec<Decorator>, Span),
@@ -15,15 +17,15 @@ pub enum Statement {
     Return(Vec<Rc<Expression>>, Span),
     If(
         Rc<Expression>,
-        Vec<Rc<Statement>>,
-        Vec<(Rc<Expression>, Vec<Rc<Statement>>)>,
-        Option<Vec<Rc<Statement>>>,
+        Block,
+        Vec<(Rc<Expression>, Block)>,
+        Option<Block>,
         Span,
     ),
     ClassDefinition(ClassDefinition, Span),
     With(
         Vec<Rc<Expression>>,    // item
-        Vec<Rc<Statement>>,         // block
+        Block,         // block
         Option<Rc<Expression>>, // type comment
         bool,                   // async
         Span,
@@ -31,23 +33,23 @@ pub enum Statement {
     For(
         Vec<Rc<Expression>>,    // targets
         Vec<Rc<Expression>>,    // expression
-        Vec<Rc<Statement>>,         // block
-        Option<Vec<Rc<Statement>>>, // else block
+        Block,         // block
+        Option<Block>, // else block
         Option<Rc<Expression>>, // type comment
         bool,                   // async
         Span,
     ),
     Try(
-        Vec<Rc<Statement>>,         // block
+        Block,         // block
         Vec<Rc<Expression>>,    // except_block
-        Option<Vec<Rc<Statement>>>, // else_block
-        Option<Vec<Rc<Statement>>>, // finally_block
+        Option<Block>, // else_block
+        Option<Block>, // finally_block
         Span,
     ),
     While(
         Rc<Expression>,
-        Vec<Rc<Statement>>,
-        Option<Vec<Rc<Statement>>>,
+        Block,
+        Option<Block>,
         Span,
     ),
     Assignment(
@@ -97,7 +99,7 @@ impl From<Token> for Name {
 pub struct FunctionDeclaration {
     pub(super) name: Name,
     pub(super) parameters: Vec<Parameter>,
-    pub(super) code: Vec<Rc<Statement>>,
+    pub(super) code: Block,
     pub(super) is_async: bool,
 }
 
@@ -105,7 +107,7 @@ pub struct FunctionDeclaration {
 pub struct ClassDefinition {
     pub(super) name: Name,
     pub(super) ancestors: Arguments,
-    pub(super) body: Vec<Rc<Statement>>,
+    pub(super) body: Block,
     pub(super) decorators: Vec<Decorator>,
     pub(super) type_params: Vec<Rc<Expression>>,
 }
@@ -192,7 +194,7 @@ pub enum Expression {
     ExceptBlock(
         Option<Rc<Expression>>,
         Option<Name>,
-        Vec<Rc<Statement>>,
+        Block,
         bool,
         Span,
     ),
@@ -226,7 +228,7 @@ pub enum Expression {
     True(Span),
     False(Span),
     None(Span),
-    Case(Vec<Pattern>, Option<Rc<Expression>>, Vec<Rc<Statement>>, Span),
+    Case(Vec<Pattern>, Option<Rc<Expression>>, Block, Span),
     TypeBound(TypeBound, Span),
     Pattern(Rc<Pattern>, Span),
     Attribute(Vec<Name>, Span),

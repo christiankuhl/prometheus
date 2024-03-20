@@ -1,4 +1,4 @@
-#![allow(unused_variables)]
+#![allow(unused_variables, dead_code)]
 
 mod parser;
 pub use parser::tokenizer::{tokenize_file, ParserState, Tokenizer};

@@ -63,7 +63,7 @@ use super::locations::Locatable;
 use super::memo::{save_result, try_remember, ParserCache};
 use super::tokenizer::{Token, TokenType as TT};
 
-pub fn parse(input: &[Token]) -> (Vec<Rc<Statement>>, Vec<Error>) {
+pub fn parse(input: &[Token]) -> (Block, Vec<Error>) {
     let errors = RefCell::new(Vec::new());
     let cache = RefCell::new(ParserCache::new());
     let parser_input = ParserState::new(input, &errors, &cache, Pass::FirstScan);
@@ -80,7 +80,7 @@ pub fn parse(input: &[Token]) -> (Vec<Rc<Statement>>, Vec<Error>) {
     (stmts, errors.into_inner())
 }
 
-pub fn parse_interactive(input: &[Token]) -> (Vec<Rc<Statement>>, Vec<Error>) {
+pub fn parse_interactive(input: &[Token]) -> (Block, Vec<Error>) {
     let errors = RefCell::new(Vec::new());
     let cache = RefCell::new(ParserCache::new());
     let input = ParserState::new(input, &errors, &cache, Pass::FirstScan);
@@ -91,14 +91,14 @@ pub fn parse_interactive(input: &[Token]) -> (Vec<Rc<Statement>>, Vec<Error>) {
 // # STARTING RULES
 // # ==============
 // file: [statements] ENDMARKER
-fn file_(input: ParserState) -> ParseResult<Vec<Rc<Statement>>> {
+fn file_(input: ParserState) -> ParseResult<Block> {
     left(maybe(statements), tok(TT::ENDMARKER))
         .map(|v| v.unwrap_or_default())
         .parse(input)
 }
 
 // interactive: statement_newline
-fn interactive(input: ParserState) -> ParseResult<Vec<Rc<Statement>>> {
+fn interactive(input: ParserState) -> ParseResult<Block> {
     statement_newline.parse(input)
 }
 
@@ -135,12 +135,12 @@ fn continue_(input: ParserState) -> ParseResult<Rc<Statement>> {
 }
 
 // statements: statement+
-fn statements(input: ParserState) -> ParseResult<Vec<Rc<Statement>>> {
+fn statements(input: ParserState) -> ParseResult<Block> {
     one_or_more(statement).map(|s| s.concat()).parse(input)
 }
 
 // statement: compound_stmt  | simple_stmts
-fn statement(input: ParserState) -> ParseResult<Vec<Rc<Statement>>> {
+fn statement(input: ParserState) -> ParseResult<Block> {
     compound_stmt
         .map(|cs| vec![cs])
         .or(simple_stmts)
@@ -151,7 +151,7 @@ fn statement(input: ParserState) -> ParseResult<Vec<Rc<Statement>>> {
 //     | simple_stmts
 //     | NEWLINE
 //     | ENDMARKER
-fn statement_newline(input: ParserState) -> ParseResult<Vec<Rc<Statement>>> {
+fn statement_newline(input: ParserState) -> ParseResult<Block> {
     left(compound_stmt, tok(TT::NEWLINE))
         .map(|_| vec![])
         .or(simple_stmts)
@@ -163,11 +163,11 @@ fn statement_newline(input: ParserState) -> ParseResult<Vec<Rc<Statement>>> {
 // simple_stmts:
 //     | simple_stmt !';' NEWLINE  # Not needed, there for speedup
 //     | ';'.simple_stmt+ [';'] NEWLINE
-fn simple_stmts(input: ParserState) -> ParseResult<Vec<Rc<Statement>>> {
+fn simple_stmts(input: ParserState) -> ParseResult<Block> {
     left(simple_stmt, pair(not(tok(TT::SEMI)), tok(TT::NEWLINE)))
         .map(|s| vec![s])
         .or(left(
-            right(tok(TT::SEMI), sep_by(simple_stmt, TT::SEMI)),
+            sep_by(simple_stmt, TT::SEMI),
             pair(maybe(tok(TT::SEMI)), tok(TT::NEWLINE)),
         ))
         .parse(input)
@@ -256,7 +256,13 @@ fn assignment(input: ParserState) -> ParseResult<Rc<Statement>> {
     .map(|((n, t), r)| {
         let s = n.span().till(&t).or(&r);
         let ns = n.span();
-        Rc::new(Statement::Assignment(vec![Rc::new(Expression::Name(n, ns))], None, r, Some(t), s))
+        Rc::new(Statement::Assignment(
+            vec![Rc::new(Expression::Name(n, ns))],
+            None,
+            r,
+            Some(t),
+            s,
+        ))
     })
     .or(pair(
         pair(
@@ -293,7 +299,13 @@ fn assignment(input: ParserState) -> ParseResult<Rc<Statement>> {
     )
     .map(|((l, ref o), r)| {
         let s = l.span().till(&r);
-        Rc::new(Statement::Assignment(vec![l], Some(o.into()), Some(r), None, s))
+        Rc::new(Statement::Assignment(
+            vec![l],
+            Some(o.into()),
+            Some(r),
+            None,
+            s,
+        ))
     }))
     .or(on_error_pass(invalid_assignment))
     .parse(input)
@@ -365,7 +377,8 @@ fn raise_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
         let s = e.span().or(&f);
         Rc::new(Statement::Raise(Some(e), f, s))
     })
-    .or(token_nodiscard(TT::KEYWORD, "raise").map(|t| Rc::new(Statement::Raise(None, None, t.span))))
+    .or(token_nodiscard(TT::KEYWORD, "raise")
+        .map(|t| Rc::new(Statement::Raise(None, None, t.span))))
     .parse(input)
 }
 
@@ -598,7 +611,7 @@ fn dotted_name(input: ParserState) -> ParseResult<Vec<Name>> {
 // block:
 //     | NEWLINE INDENT statements DEDENT
 //     | simple_stmts
-fn block(input: ParserState) -> ParseResult<Vec<Rc<Statement>>> {
+fn block(input: ParserState) -> ParseResult<Block> {
     // if let Some(result) = try_remember(input, block) {
     //     return result;
     // }
@@ -626,16 +639,14 @@ fn decorators(input: ParserState) -> ParseResult<Vec<Decorator>> {
 //     | decorators class_def_raw
 fn class_def(input: ParserState) -> ParseResult<Rc<Statement>> {
     pair(decorators, class_def_raw)
-        .map(|(dec, cls)| {
-            match cls.as_ref() {
-                Statement::ClassDefinition(c, _) => {
-                    let s = dec.span().till(c);
-                    let mut cc = c.clone();
-                    cc.decorators = dec;
-                    Rc::new(Statement::ClassDefinition(cc, s))
-                }
-                _ => cls
+        .map(|(dec, cls)| match cls.as_ref() {
+            Statement::ClassDefinition(c, _) => {
+                let s = dec.span().till(c);
+                let mut cc = c.clone();
+                cc.decorators = dec;
+                Rc::new(Statement::ClassDefinition(cc, s))
             }
+            _ => cls,
         })
         .parse(input)
 }
@@ -679,14 +690,12 @@ fn class_def_raw(input: ParserState) -> ParseResult<Rc<Statement>> {
 //     | decorators function_def_raw
 fn function_def(input: ParserState) -> ParseResult<Rc<Statement>> {
     pair(decorators, function_def_raw)
-        .map(|(dec, fun)| {
-            match fun.as_ref() {
-                Statement::FunctionDeclaration(f, _, _) => {
-                    let s = dec.span().till(f);
-                    Rc::new(Statement::FunctionDeclaration(f.clone(), dec, s))
-                }
-                _ => fun
+        .map(|(dec, fun)| match fun.as_ref() {
+            Statement::FunctionDeclaration(f, _, _) => {
+                let s = dec.span().till(f);
+                Rc::new(Statement::FunctionDeclaration(f.clone(), dec, s))
             }
+            _ => fun,
         })
         .parse(input)
 }
@@ -1015,12 +1024,7 @@ fn if_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
 // elif_stmt:
 //     | 'elif' named_expression ':' block elif_stmt
 //     | 'elif' named_expression ':' block [else_block]
-fn elif_stmt(
-    input: ParserState,
-) -> ParseResult<(
-    Vec<(Rc<Expression>, Vec<Rc<Statement>>)>,
-    Option<Vec<Rc<Statement>>>,
-)> {
+fn elif_stmt(input: ParserState) -> ParseResult<(Vec<(Rc<Expression>, Block)>, Option<Block>)> {
     on_error_pass(invalid_elif_stmt)
         .or(pair(
             one_or_more(pair(
@@ -1034,7 +1038,7 @@ fn elif_stmt(
 
 // else_block:
 //     | 'else' ':' block
-fn else_block(input: ParserState) -> ParseResult<Vec<Rc<Statement>>> {
+fn else_block(input: ParserState) -> ParseResult<Block> {
     on_error_pass(invalid_else_stmt)
         .or(right(
             pair(token(TT::KEYWORD, "else"), tok(TT::COLON)),
@@ -1258,7 +1262,7 @@ fn except_star_block(input: ParserState) -> ParseResult<Rc<Expression>> {
 
 // finally_block:
 //     | 'finally' ':' block
-fn finally_block(input: ParserState) -> ParseResult<Vec<Rc<Statement>>> {
+fn finally_block(input: ParserState) -> ParseResult<Block> {
     on_error_pass(invalid_finally_stmt)
         .or(right(
             pair(token(TT::KEYWORD, "finally"), tok(TT::COLON)),
@@ -2838,10 +2842,7 @@ fn fstring_middle(input: ParserState) -> ParseResult<Rc<Expression>> {
     fstring_replacement_field
         .map(|fs| {
             if let Expression::FStringReplacement(f, s) = fs.as_ref() {
-                Rc::new(Expression::FString(
-                    FString::Interpolated(f.clone()),
-                    *s,
-                ))
+                Rc::new(Expression::FString(FString::Interpolated(f.clone()), *s))
             } else {
                 fs
             }
@@ -3579,11 +3580,17 @@ fn del_t_atom(input: ParserState) -> ParseResult<Rc<Expression>> {
 //     | '*' expression
 //     | '**' expression
 //     | ','.expression+
+fn type_expressions(input: ParserState) -> ParseResult<Vec<Rc<Expression>>> {
+    todo!()
+}
 
 // func_type_comment:
 //     | NEWLINE TYPE_COMMENT &(NEWLINE INDENT)   # Must be followed by indented block
 //     | invalid_double_type_comments
 //     | TYPE_COMMENT
+fn func_type_comment(input: ParserState) -> ParseResult<Vec<Rc<Expression>>> {
+    todo!()
+}
 
 // # ========================= END OF THE GRAMMAR ===========================
 
@@ -4000,7 +4007,7 @@ fn invalid_del_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
 
 // invalid_block:
 //     | NEWLINE !INDENT { RAISE_INDENTATION_ERROR("expected an indented block") }
-fn invalid_block(input: ParserState) -> ParseResult<Vec<Rc<Statement>>> {
+fn invalid_block(input: ParserState) -> ParseResult<Block> {
     left(tok(TT::NEWLINE), not(tok(TT::INDENT)))
         .map(move |t| {
             let error = Error::starting_from(t.span, "expected an indented block");
@@ -4844,7 +4851,7 @@ fn invalid_except_stmt(input: ParserState) -> ParseResult<Rc<Expression>> {
 // invalid_finally_stmt:
 //     | a='finally' ':' NEWLINE !INDENT {
 //         RAISE_INDENTATION_ERROR("expected an indented block after 'finally' statement on line %d", a->lineno) }
-fn invalid_finally_stmt(input: ParserState) -> ParseResult<Vec<Rc<Statement>>> {
+fn invalid_finally_stmt(input: ParserState) -> ParseResult<Block> {
     left(
         left(
             left(token_nodiscard(TT::KEYWORD, "finally"), tok(TT::COLON)),
@@ -5088,10 +5095,7 @@ fn invalid_if_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
 //         RAISE_INDENTATION_ERROR("expected an indented block after 'elif' statement on line %d", a->lineno) }
 fn invalid_elif_stmt(
     input: ParserState,
-) -> ParseResult<(
-    Vec<(Rc<Expression>, Vec<Rc<Statement>>)>,
-    Option<Vec<Rc<Statement>>>,
-)> {
+) -> ParseResult<(Vec<(Rc<Expression>, Block)>, Option<Block>)> {
     missing_block_or_colon_on_keyword_named_expr(input, "elif")
         .map(|s| {
             (
@@ -5108,7 +5112,7 @@ fn invalid_elif_stmt(
 // invalid_else_stmt:
 //     | a='else' ':' NEWLINE !INDENT {
 //         RAISE_INDENTATION_ERROR("expected an indented block after 'else' statement on line %d", a->lineno) }
-fn invalid_else_stmt(input: ParserState) -> ParseResult<Vec<Rc<Statement>>> {
+fn invalid_else_stmt(input: ParserState) -> ParseResult<Block> {
     missing_block_or_colon_on_keyword_named_expr(input, "else")
         .map(|s| vec![s])
         .parse(input)
