@@ -101,6 +101,8 @@ pub struct FunctionDeclaration {
     pub(super) parameters: Vec<Parameter>,
     pub(super) code: Block,
     pub(super) is_async: bool,
+    pub(super) return_type: Option<Rc<Expression>>,
+    pub(super) func_type: Option<Rc<Expression>>,
 }
 
 #[derive(Debug, Clone)]

@@ -718,13 +718,19 @@ fn function_def_raw(input: ParserState) -> ParseResult<Rc<Statement>> {
                     right(token(TT::KEYWORD, "def"), name),
                     right(
                         tok(TT::LPAR),
-                        left(maybe(params), pair(tok(TT::RPAR), tok(TT::COLON))),
+                        pair(
+                            maybe(params),
+                            left(
+                                right(tok(TT::RPAR), maybe(right(tok(TT::RARROW), expression))),
+                                tok(TT::COLON),
+                            ),
+                        ),
                     ),
                 ),
-                block,
+                pair(maybe(func_type_comment), block),
             ),
         )
-        .map(|(a, ((n, p), b))| {
+        .map(|(a, ((n, (p, rt)), (ft, b)))| {
             let span = n.span().till_block(&b);
             let parameters = match p.as_deref() {
                 Some(Expression::Parameters(p, _)) => p.clone(),
@@ -737,6 +743,8 @@ fn function_def_raw(input: ParserState) -> ParseResult<Rc<Statement>> {
                     parameters,
                     code: b,
                     is_async: a.is_some(),
+                    return_type: rt,
+                    func_type: ft,
                 },
                 vec![],
                 span,
@@ -3587,8 +3595,18 @@ fn type_expressions(input: ParserState) -> ParseResult<Vec<Rc<Expression>>> {
 //     | NEWLINE TYPE_COMMENT &(NEWLINE INDENT)   # Must be followed by indented block
 //     | invalid_double_type_comments
 //     | TYPE_COMMENT
-fn func_type_comment(input: ParserState) -> ParseResult<Vec<Rc<Expression>>> {
-    todo!()
+fn func_type_comment(input: ParserState) -> ParseResult<Rc<Expression>> {
+    right(
+        tok(TT::NEWLINE),
+        left(
+            tok(TT::TYPE_COMMENT),
+            lookahead(pair(tok(TT::NEWLINE), tok(TT::INDENT))),
+        ),
+    )
+    .map(|t| Rc::new(Expression::TypeComment(Rc::from(t.lexeme), t.span)))
+    .or(invalid_double_type_comments)
+    .or(tok(TT::TYPE_COMMENT).map(|t| Rc::new(Expression::TypeComment(Rc::from(t.lexeme), t.span))))
+    .parse(input)
 }
 
 // # ========================= END OF THE GRAMMAR ===========================
