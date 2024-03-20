@@ -718,7 +718,7 @@ fn function_def_raw(input: ParserState) -> ParseResult<Rc<Statement>> {
                     right(token(TT::KEYWORD, "def"), name),
                     right(
                         tok(TT::LPAR),
-                        left(params, pair(tok(TT::RPAR), tok(TT::COLON))),
+                        left(maybe(params), pair(tok(TT::RPAR), tok(TT::COLON))),
                     ),
                 ),
                 block,
@@ -726,9 +726,10 @@ fn function_def_raw(input: ParserState) -> ParseResult<Rc<Statement>> {
         )
         .map(|(a, ((n, p), b))| {
             let span = n.span().till_block(&b);
-            let parameters = match p.as_ref() {
-                Expression::Parameters(p, _) => p.clone(),
-                _ => return Rc::new(Statement::Invalid),
+            let parameters = match p.as_deref() {
+                Some(Expression::Parameters(p, _)) => p.clone(),
+                None => vec![],
+                Some(_) => return Rc::new(Statement::Invalid),
             };
             Rc::new(Statement::FunctionDeclaration(
                 FunctionDeclaration {
