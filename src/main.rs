@@ -17,20 +17,20 @@ fn run_script(filename: &str) -> Result<(), String> {
     use std::time::Instant;
     let time = Instant::now();
     let tokens = tokenize_file(filename)?;
-    for token in tokens.iter() {
-        println!("{:}", token);
-    }
     let (statements, errors) = parse(&tokens);
     let elapsed = time.elapsed();
+    for token in tokens.iter() {
+        // println!("{:}", token);
+    }
     let res = if errors.is_empty() {
         for statement in statements.iter() {
-            println!("\n{:?}", statement);
+            // println!("\n{:?}", statement);
             // evaluate(statement);
         }
         Ok(())
     } else {
         for error in errors {
-            println!("Error: {error:?}");
+            // println!("Error: {error:?}");
         }
         Err("Foo".to_string())
     };
