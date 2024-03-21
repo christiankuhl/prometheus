@@ -22,7 +22,7 @@ pub struct ParserState<'a> {
     pub(super) tokens: &'a [Token],
     pub(super) errors: &'a RefCell<Vec<Error>>,
     pub(super) cache: &'a RefCell<ParserCache<'a>>,
-    pass: Pass,
+    pub(super) pass: Pass,
 }
 
 impl<'a> ParserState<'a> {
@@ -389,4 +389,15 @@ pub(super) fn on_error_pass<'a, R>(parser: impl Parser<'a, R>) -> impl Parser<'a
         Pass::ErrorLocation => parser.parse(input),
         Pass::FirstScan => ParseResult::Err,
     }
+}
+
+pub(super) fn anything(input: ParserState) -> ParseResult<Token> {
+    ParseResult::Ok((
+        input.tokens.first().cloned().unwrap_or_default(),
+        if input.tokens.first().is_some() {
+            input.consume()
+        } else {
+            input
+        },
+    ))
 }

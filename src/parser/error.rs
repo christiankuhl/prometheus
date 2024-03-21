@@ -1,7 +1,7 @@
 use super::locations::Span;
 
 #[derive(Debug)]
-pub struct Error(Span, String);
+pub struct Error(Span, pub(super) String);
 
 impl Error {
     pub fn new(span: Span, msg: &str) -> Self {

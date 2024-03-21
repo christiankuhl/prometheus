@@ -149,13 +149,30 @@ fn statement(input: ParserState) -> ParseResult<Block> {
     compound_stmt
         .map(|cs| vec![cs])
         .or(simple_stmts)
+        .or(on_error_pass(unspecified_syntax_error).map(|s| vec![s]))
         .parse(input)
 }
+
+fn unspecified_syntax_error(input: ParserState) -> ParseResult<Rc<Statement>> {
+    left(
+        zero_or_more(anything.pred(|t| t.typ != TT::NEWLINE && t.typ != TT::ENDMARKER)),
+        tok(TT::NEWLINE),
+    )
+    .map(move |t| {
+        let error = Error::with_underline(t.span(), "invalid syntax");
+        input.report_error(error);
+        Rc::new(Statement::Invalid)
+    })
+    .parse(input)
+}
+
 // statement_newline:
 //     | compound_stmt NEWLINE
 //     | simple_stmts
 //     | NEWLINE
 //     | ENDMARKER
+
+// FIXME
 fn statement_newline(input: ParserState) -> ParseResult<Block> {
     left(compound_stmt, tok(TT::NEWLINE))
         .map(|_| vec![])
