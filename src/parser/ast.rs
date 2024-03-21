@@ -1,4 +1,4 @@
-use super::locations::Span;
+use super::locations::{Span, Locatable};
 use super::tokenizer::{
     Token, TokenType as TT, BINNUMBER, DECNUMBER, FLOATNUMBER, HEXNUMBER, IMAGNUMBER, OCTNUMBER,
 };
@@ -463,4 +463,26 @@ pub struct Import {
 pub struct ImportItem {
     pub(super) name: Vec<Name>, // convention: empty Vec serves as *
     pub(super) alias: Option<Name>,
+}
+
+
+#[derive(Debug, Clone)]
+pub enum Selector {
+    Name(Name),
+    Slice(Vec<Slice>),
+}
+
+impl Selector {
+    pub fn apply_to(self, expr: Rc<Expression>) -> Rc<Expression> {
+        match self {
+            Self::Name(n) => {
+                let s = expr.span().till(&n);
+                Rc::new(Expression::Subscript(expr, n, s))
+            }
+            Self::Slice(s) => {
+                let sp = expr.span().till(&s);
+                Rc::new(Expression::Slice(expr, s, sp))
+            }
+        }
+    }
 }

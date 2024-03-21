@@ -3394,26 +3394,6 @@ fn single_target(input: ParserState) -> ParseResult<Rc<Expression>> {
         .parse(input)
 }
 
-enum Selector {
-    Name(Name),
-    Slice(Vec<Slice>),
-}
-
-impl Selector {
-    fn apply_to(self, expr: Rc<Expression>) -> Rc<Expression> {
-        match self {
-            Self::Name(n) => {
-                let s = expr.span().till(&n);
-                Rc::new(Expression::Subscript(expr, n, s))
-            }
-            Self::Slice(s) => {
-                let sp = expr.span().till(&s);
-                Rc::new(Expression::Slice(expr, s, sp))
-            }
-        }
-    }
-}
-
 // single_subscript_attribute_target:
 //     | t_primary '.' NAME !t_lookahead
 //     | t_primary '[' slices ']' !t_lookahead
