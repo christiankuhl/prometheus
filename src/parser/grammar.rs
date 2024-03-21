@@ -72,8 +72,10 @@ pub fn parse(input: &[Token]) -> (Block, Vec<Error>) {
             let cache = RefCell::new(ParserCache::new());
             let parser_input = ParserState::new(input, &errors, &cache, Pass::ErrorLocation);
             let res = file_.parse(parser_input);
-            println!("{:?}", res);
-            vec![]
+            match res {
+                ParseResult::Ok((stmts, _)) => stmts,
+                ParseResult::Err => vec![],
+            }
         }
         ParseResult::Ok((stmts, _)) => stmts,
     };

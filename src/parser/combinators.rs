@@ -2,8 +2,8 @@ use std::cell::RefCell;
 
 use super::error::Error;
 use super::locations::Span;
-use super::tokenizer::{Token, TokenType};
 use super::memo::ParserCache;
+use super::tokenizer::{Token, TokenType};
 
 #[derive(Debug, Clone)]
 pub enum ParseResult<'a, Output> {
@@ -49,7 +49,12 @@ impl<'a> ParserState<'a> {
         }
     }
     pub fn consume(&self) -> Self {
-        Self { tokens: &self.tokens[1..], errors: self.errors, cache: self.cache, pass: self.pass }
+        Self {
+            tokens: &self.tokens[1..],
+            errors: self.errors,
+            cache: self.cache,
+            pass: self.pass,
+        }
     }
 }
 
@@ -147,8 +152,41 @@ where
     F: Fn(ParserState<'a>) -> ParseResult<Output>,
 {
     fn parse(&self, input: ParserState<'a>) -> ParseResult<'a, Output> {
-        self(input)
+        #[cfg(single_step_debug)] 
+        {
+            let n = std::any::type_name::<F>();
+            if !n.contains("{{closure}}") {
+                let input_str = input.tokens.iter().map(|t| format!("{t}")).collect::<Vec<_>>().join(", ");
+                println!("{n} {:}", input_str);
+                pause();
+            }
+            let res = self(input);
+            if !n.contains("{{closure}}") {
+                let res_txt = if matches!(res, ParseResult::Ok(_)) {
+                    "Ok()"
+                } else {
+                    "Err"
+                };
+                println!("... {n} => {res_txt}");
+            }
+            res
+        }
+        #[cfg(not(single_step_debug))]
+        {
+            self(input)
+        }
     }
+}
+
+#[cfg(single_step_debug)]
+fn pause() {
+    use std::io;
+    use std::io::prelude::*;
+    let mut stdin = io::stdin();
+    let mut stdout = io::stdout();
+    write!(stdout, "").unwrap();
+    stdout.flush().unwrap();
+    let _ = stdin.read(&mut [0u8]).unwrap();
 }
 
 pub(super) struct BoxedParser<'a, Output> {
