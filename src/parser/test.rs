@@ -7,11 +7,19 @@ fn parse_string(input: &str) -> Result<(Block, Vec<Error>), String> {
 }
 
 fn assert_successful_parse(input: &str) {
-    assert!(matches!(parse_string(input), Ok((_, errors)) if errors.is_empty()))
+    assert!(matches!(parse_string(input), Ok((_, errors)) if errors.is_empty()));
 }
 
-fn assert_raises_error(input: &str) {
-    assert!(matches!(parse_string(input), Ok((_, errors)) if !errors.is_empty()))
+fn assert_raises_error(input: &str, msg: &str) {
+    let result = parse_string(input);
+    assert!(matches!(result, Ok((_, ref errors)) if !errors.is_empty()));
+    match result {
+        Ok((_, ref errors)) => {
+            let err = errors.first().unwrap();
+            assert_eq!(msg, err.1.as_str());
+        }
+        _ => unreachable!(),
+    }
 }
 
 #[test]
@@ -125,7 +133,6 @@ fn test_var_annot() {
     assert_successful_parse("y: List[T] = []; z: [list] = fun()");
     assert_successful_parse("x: tuple = (1, 2)");
     assert_successful_parse("d[f()]: int = 42");
-    // assert_successful_parse("f(d[x]): str = 'abc'");
     assert_successful_parse("x.y.z.w: complex = 42j");
     assert_successful_parse("x: int");
     assert_successful_parse("def f():\n    x: str\n    y: int = 5\n");
@@ -133,16 +140,17 @@ fn test_var_annot() {
     assert_successful_parse(
         "class C:\n    def __init__(self, x: int) -> None:\n        self.x: int = x\n",
     );
-    // assert_raises_error("2+2: int");
-    // assert_raises_error("[]: int = 5");
-    // assert_raises_error("x, *y, z: int = range(5)");
-    // assert_raises_error("x: int = 1, y = 2");
-    // assert_raises_error("u = v: int");
-    // assert_raises_error("False: int");
-    // assert_raises_error("x.False: int");
-    // assert_raises_error("x.y,: int");
-    // assert_raises_error("[0]: int");
-    // assert_raises_error("f(): int");
+    assert_raises_error("2+2: int", "illegal target for annotation");
+    assert_raises_error("f(d[x]): str = 'abc'", "illegal target for annotation");
+    assert_raises_error("[]: int = 5", "only single targets can be annotated");
+    assert_raises_error("x, *y, z: int = range(5)", "only single target (not tuple) can be annotated");
+    assert_raises_error("x: int = 1, y = 2", "invalid syntax");
+    assert_raises_error("u = v: int", "invalid syntax");
+    assert_raises_error("False: int", "illegal target for annotation");
+    assert_raises_error("x.False: int", "invalid syntax");
+    assert_raises_error("x.y,: int", "only single target (not tuple) can be annotated");
+    assert_raises_error("[0]: int", "only single targets can be annotated");
+    assert_raises_error("f(): int", "illegal target for annotation");
 }
 
 #[test]
