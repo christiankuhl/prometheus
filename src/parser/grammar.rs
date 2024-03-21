@@ -375,16 +375,25 @@ fn augassign(input: ParserState) -> ParseResult<Token> {
 // return_stmt:
 //     | 'return' [star_expressions]
 fn return_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
-    pair(token_nodiscard(TT::KEYWORD, "return"), star_expressions)
-        .map(|(r, e)| {
-            let s = if e.is_empty() {
-                r.span
-            } else {
-                r.span.till(&e)
-            };
-            Rc::new(Statement::Return(e, s))
-        })
-        .parse(input)
+    pair(
+        token_nodiscard(TT::KEYWORD, "return"),
+        maybe(star_expressions),
+    )
+    .map(|(r, e)| {
+        let (e, s) = match e {
+            Some(e) => {
+                let s = if e.is_empty() {
+                    r.span
+                } else {
+                    r.span.till(&e)
+                };
+                (e, s)
+            }
+            None => (vec![], r.span),
+        };
+        Rc::new(Statement::Return(e, s))
+    })
+    .parse(input)
 }
 
 // raise_stmt:
@@ -1163,7 +1172,7 @@ fn with_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
         .or(pair(
             maybe(token(TT::KEYWORD, "async")),
             pair(
-                left(token_nodiscard(TT::KEYWORD, "with"), tok(TT::COLON)),
+                token_nodiscard(TT::KEYWORD, "with"),
                 pair(
                     sep_by(with_item, TT::COMMA),
                     right(tok(TT::COLON), pair(maybe(tok(TT::TYPE_COMMENT)), block)),
@@ -1257,7 +1266,7 @@ fn except_block(input: ParserState) -> ParseResult<Rc<Expression>> {
                 token_nodiscard(TT::KEYWORD, "except"),
                 pair(expression, maybe(right(token(TT::KEYWORD, "as"), name))),
             ),
-            block,
+            right(tok(TT::COLON), block),
         )
         .map(|((t, (e, a)), b)| {
             let s = t.span.till_block(&b);
@@ -3176,7 +3185,7 @@ fn genexp(input: ParserState) -> ParseResult<Rc<Expression>> {
 fn dictcomp(input: ParserState) -> ParseResult<Rc<Expression>> {
     pair(
         right(tok(TT::LBRACE), kvpair),
-        left(for_if_clauses, tok(TT::RSQB)),
+        left(for_if_clauses, tok(TT::RBRACE)),
     )
     .map(|(e, f)| {
         let s = e.span().till(&f);
