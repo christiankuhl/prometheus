@@ -5,6 +5,8 @@ use super::locations::Span;
 use super::memo::ParserCache;
 use super::tokenizer::{Token, TokenType};
 
+use derivative::Derivative;
+
 #[derive(Debug, Clone)]
 pub enum ParseResult<'a, Output> {
     Ok((Output, ParserState<'a>)),
@@ -17,10 +19,12 @@ pub enum Pass {
     ErrorLocation,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Derivative)]
+#[derivative(Debug, Clone, Copy)]
 pub struct ParserState<'a> {
     pub(super) tokens: &'a [Token],
     pub(super) errors: &'a RefCell<Vec<Error>>,
+    #[derivative(Debug="ignore")]
     pub(super) cache: &'a RefCell<ParserCache<'a>>,
     pub(super) pass: Pass,
 }

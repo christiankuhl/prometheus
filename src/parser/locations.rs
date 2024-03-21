@@ -10,7 +10,7 @@ pub(crate) struct Location {
 
 impl std::fmt::Display for Location {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "line {}, column {}", self.line, self.column)
+        write!(f, "({}, {})", self.line + 1, self.column + 1)
     }
 }
 
@@ -18,11 +18,21 @@ pub trait Locatable {
     fn span(&self) -> Span;
 }
 
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default)]
 pub enum Span {
     #[default]
     Indetermined,
     Determined(_Span),
+}
+
+impl std::fmt::Debug for Span {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Span::Determined(_Span { start, end }) => format!("{start}-{end}"),
+            Span::Indetermined => "n/a".to_owned(),
+        };
+        write!(f, "{}", s)
+    }
 }
 
 #[derive(Clone, Copy, Default, Debug)]

@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default)]
 pub struct Token {
     pub(crate) typ: TokenType,
     pub(crate) lexeme: String,
@@ -14,6 +14,12 @@ pub struct Token {
 }
 
 impl std::fmt::Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}('{}')", self.typ, self.lexeme)
+    }
+}
+
+impl std::fmt::Debug for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}('{}')", self.typ, self.lexeme)
     }
