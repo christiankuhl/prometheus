@@ -366,12 +366,7 @@ impl Locatable for Import {
 
 impl Locatable for ImportItem {
     fn span(&self) -> Span {
-        if self.name.is_empty() {
-            Span::Indetermined
-        } else {
-            let last = self.name.last().unwrap();
-            self.name.first().unwrap().span.till(last).or(&self.alias)
-        }
+        self.name.span
     }
 }
 

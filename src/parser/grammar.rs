@@ -573,15 +573,7 @@ fn import_from_targets(input: ParserState) -> ParseResult<Rc<Expression>> {
         pair(maybe(tok(TT::COMMA)), tok(TT::RPAR)),
     )
     .or(left(import_from_as_names, not(tok(TT::COMMA))))
-    .or(tok(TT::STAR).map(|a| {
-        Rc::new(Expression::ImportItems(
-            vec![ImportItem {
-                name: vec![],
-                alias: None,
-            }],
-            a.span(),
-        ))
-    }))
+    .or(tok(TT::STAR).map(|a| Rc::new(Expression::ImportItems(vec![], a.span()))))
     .or(on_error_pass(invalid_import_from_targets))
     .parse(input)
 }
@@ -601,10 +593,7 @@ fn import_from_as_names(input: ParserState) -> ParseResult<Rc<Expression>> {
 //     | NAME ['as' NAME ]
 fn import_from_as_name(input: ParserState) -> ParseResult<ImportItem> {
     pair(name, maybe(right(token(TT::KEYWORD, "as"), name)))
-        .map(|(n, alias)| ImportItem {
-            name: vec![n],
-            alias,
-        })
+        .map(|(name, alias)| ImportItem { name, alias })
         .parse(input)
 }
 

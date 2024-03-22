@@ -469,10 +469,9 @@ pub struct Import {
 
 #[derive(Debug, Clone)]
 pub struct ImportItem {
-    pub(super) name: Vec<Name>, // convention: empty Vec serves as *
+    pub(super) name: Name,
     pub(super) alias: Option<Name>,
 }
-
 
 #[derive(Debug, Clone)]
 pub enum Selector {
