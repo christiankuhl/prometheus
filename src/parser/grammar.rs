@@ -1932,9 +1932,15 @@ fn star_named_expressions(input: ParserState) -> ParseResult<Vec<Rc<Expression>>
 //     | '*' bitwise_or
 //     | named_expression
 fn star_named_expression(input: ParserState) -> ParseResult<Rc<Expression>> {
-    right(tok(TT::STAR), bitwise_or)
-        .or(named_expression)
-        .parse(input)
+    right(
+        tok(TT::STAR),
+        bitwise_or.map(|e| {
+            let s = e.span();
+            Rc::new(Expression::ListUnwrap(e, s))
+        }),
+    )
+    .or(named_expression)
+    .parse(input)
 }
 
 // assignment_expression:
@@ -3304,7 +3310,10 @@ fn kwarg_or_double_starred(input: ParserState) -> ParseResult<Rc<Expression>> {
                 let s = n.span.till(&e);
                 Rc::new(Expression::KeywordArgument(n, e, s))
             })
-            .or(right(tok(TT::DOUBLESTAR), expression)))
+            .or(right(tok(TT::DOUBLESTAR), expression).map(|e| {
+                let s = e.span();
+                Rc::new(Expression::DictUnwrap(e, s))
+            })))
         .parse(input)
 }
 
@@ -3353,7 +3362,11 @@ fn star_target(input: ParserState) -> ParseResult<Rc<Expression>> {
     if let Some(result) = try_remember(input, star_target) {
         return result;
     }
-    let result = right(tok(TT::STAR), right(not(tok(TT::STAR)), star_target))
+    let result = pair(tok(TT::STAR), right(not(tok(TT::STAR)), star_target))
+        .map(|(s, e)| {
+            let s = s.span.till(&e);
+            Rc::new(Expression::ListUnwrap(e, s))
+        })
         .or(target_with_star_atom)
         .parse(input);
     save_result(input, star_target, &result);
