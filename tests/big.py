@@ -105,56 +105,56 @@ class Hand(list):
             return self[position]
         else:
             raise IndexError
-    # def repr(self, style="horizontal", hide=["1"], card_width=8):
-    #     cards = []
-    #     for index, card in zip(Hand.alphabet, self):
-    #         if index in hide:
-    #             cards.append(Card.HIDDEN)
-    #         else:
-    #             cards.append(str(card))
-    #     if style == "horizontal":
-    #         try:
-    #             repr_string = "Foo"
-    #             # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
-    #             #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
-    #             #                                 for card in cards[:-1]])
-    #             #                         + cards[-1].split("\n")[index]
-    #             #                                         for index in range(7)]))
-    #         except IndexError:
-    #             # No cards to be displayed
-    #             repr_string = "\n".join([" " * self.maxwidth] * 7)
-    #     elif style == "vertical":
-    #         try:
-    #             repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
-    #         except IndexError:
-    #             repr_string = "\n".join([" " * 7] * 7)
-    #     elif style == "hidden":
-    #         # Print a single box with the player's name and the number of cards in the
-    #         # player's hand in it.
-    #         top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
-    #         bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
-            # interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
-            #             + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
-            #             + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
-            #             + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
-    #         repr_string = top + interior + bottom
-    #     elif style == "top":
-    #         repr_string = str(self[-1])
-    #     return repr_string
-    # def __repr__(self):
-    #     return self.repr(self.style)
+    def repr(self, style="horizontal", hide=["1"], card_width=8):
+        cards = []
+        for index, card in zip(Hand.alphabet, self):
+            if index in hide:
+                cards.append(Card.HIDDEN)
+            else:
+                cards.append(str(card))
+        if style == "horizontal":
+            try:
+                repr_string = "Foo"
+                repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
+                                     ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
+                                                for card in cards[:-1]])
+                                        + cards[-1].split("\n")[index]
+                                                        for index in range(7)]))
+            except IndexError:
+                # No cards to be displayed
+                repr_string = "\n".join([" " * self.maxwidth] * 7)
+        elif style == "vertical":
+            try:
+                repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
+            except IndexError:
+                repr_string = "\n".join([" " * 7] * 7)
+        elif style == "hidden":
+            # Print a single box with the player's name and the number of cards in the
+            # player's hand in it.
+            top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
+            bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
+            interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
+                        + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
+                        + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
+                        + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
+            repr_string = top + interior + bottom
+        elif style == "top":
+            repr_string = str(self[-1])
+        return repr_string
+    def __repr__(self):
+        return self.repr(self.style)
 
-# class Deck(list):
-#     """
-#     A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
-#     Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
-#     """
-#     suites = ["spades", "hearts", "diamonds", "clubs"]
-#     def __init__(self, n=1, start=7):
-#         ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
-#         base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
-#         shuffle(base_deck)
-#         super().__init__(base_deck)
+class Deck(list):
+    """
+    A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
+    Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
+    """
+    suites = ["spades", "hearts", "diamonds", "clubs"]
+    def __init__(self, n=1, start=7):
+        ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
+        base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
+        shuffle(base_deck)
+        super().__init__(base_deck)
 print("Hello, world!")
 
 lambda: None
@@ -298,56 +298,56 @@ class Hand(list):
             return self[position]
         else:
             raise IndexError
-    # def repr(self, style="horizontal", hide=["1"], card_width=8):
-    #     cards = []
-    #     for index, card in zip(Hand.alphabet, self):
-    #         if index in hide:
-    #             cards.append(Card.HIDDEN)
-    #         else:
-    #             cards.append(str(card))
-    #     if style == "horizontal":
-    #         try:
-    #             repr_string = "Foo"
-    #             # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
-    #             #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
-    #             #                                 for card in cards[:-1]])
-    #             #                         + cards[-1].split("\n")[index]
-    #             #                                         for index in range(7)]))
-    #         except IndexError:
-    #             # No cards to be displayed
-    #             repr_string = "\n".join([" " * self.maxwidth] * 7)
-    #     elif style == "vertical":
-    #         try:
-    #             repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
-    #         except IndexError:
-    #             repr_string = "\n".join([" " * 7] * 7)
-    #     elif style == "hidden":
-    #         # Print a single box with the player's name and the number of cards in the
-    #         # player's hand in it.
-    #         top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
-    #         bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
-            # interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
-            #             + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
-            #             + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
-            #             + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
-    #         repr_string = top + interior + bottom
-    #     elif style == "top":
-    #         repr_string = str(self[-1])
-    #     return repr_string
-    # def __repr__(self):
-    #     return self.repr(self.style)
+    def repr(self, style="horizontal", hide=["1"], card_width=8):
+        cards = []
+        for index, card in zip(Hand.alphabet, self):
+            if index in hide:
+                cards.append(Card.HIDDEN)
+            else:
+                cards.append(str(card))
+        if style == "horizontal":
+            try:
+                repr_string = "Foo"
+                repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
+                                     ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
+                                                for card in cards[:-1]])
+                                        + cards[-1].split("\n")[index]
+                                                        for index in range(7)]))
+            except IndexError:
+                # No cards to be displayed
+                repr_string = "\n".join([" " * self.maxwidth] * 7)
+        elif style == "vertical":
+            try:
+                repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
+            except IndexError:
+                repr_string = "\n".join([" " * 7] * 7)
+        elif style == "hidden":
+            # Print a single box with the player's name and the number of cards in the
+            # player's hand in it.
+            top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
+            bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
+            interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
+                        + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
+                        + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
+                        + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
+            repr_string = top + interior + bottom
+        elif style == "top":
+            repr_string = str(self[-1])
+        return repr_string
+    def __repr__(self):
+        return self.repr(self.style)
 
-# class Deck(list):
-#     """
-#     A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
-#     Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
-#     """
-#     suites = ["spades", "hearts", "diamonds", "clubs"]
-#     def __init__(self, n=1, start=7):
-#         ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
-#         base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
-#         shuffle(base_deck)
-#         super().__init__(base_deck)
+class Deck(list):
+    """
+    A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
+    Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
+    """
+    suites = ["spades", "hearts", "diamonds", "clubs"]
+    def __init__(self, n=1, start=7):
+        ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
+        base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
+        shuffle(base_deck)
+        super().__init__(base_deck)
 print("Hello, world!")
 
 lambda: None
@@ -491,56 +491,56 @@ class Hand(list):
             return self[position]
         else:
             raise IndexError
-    # def repr(self, style="horizontal", hide=["1"], card_width=8):
-    #     cards = []
-    #     for index, card in zip(Hand.alphabet, self):
-    #         if index in hide:
-    #             cards.append(Card.HIDDEN)
-    #         else:
-    #             cards.append(str(card))
-    #     if style == "horizontal":
-    #         try:
-    #             repr_string = "Foo"
-    #             # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
-    #             #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
-    #             #                                 for card in cards[:-1]])
-    #             #                         + cards[-1].split("\n")[index]
-    #             #                                         for index in range(7)]))
-    #         except IndexError:
-    #             # No cards to be displayed
-    #             repr_string = "\n".join([" " * self.maxwidth] * 7)
-    #     elif style == "vertical":
-    #         try:
-    #             repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
-    #         except IndexError:
-    #             repr_string = "\n".join([" " * 7] * 7)
-    #     elif style == "hidden":
-    #         # Print a single box with the player's name and the number of cards in the
-    #         # player's hand in it.
-    #         top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
-    #         bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
-            # interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
-            #             + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
-            #             + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
-            #             + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
-    #         repr_string = top + interior + bottom
-    #     elif style == "top":
-    #         repr_string = str(self[-1])
-    #     return repr_string
-    # def __repr__(self):
-    #     return self.repr(self.style)
+    def repr(self, style="horizontal", hide=["1"], card_width=8):
+        cards = []
+        for index, card in zip(Hand.alphabet, self):
+            if index in hide:
+                cards.append(Card.HIDDEN)
+            else:
+                cards.append(str(card))
+        if style == "horizontal":
+            try:
+                repr_string = "Foo"
+                repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
+                                     ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
+                                                for card in cards[:-1]])
+                                        + cards[-1].split("\n")[index]
+                                                        for index in range(7)]))
+            except IndexError:
+                # No cards to be displayed
+                repr_string = "\n".join([" " * self.maxwidth] * 7)
+        elif style == "vertical":
+            try:
+                repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
+            except IndexError:
+                repr_string = "\n".join([" " * 7] * 7)
+        elif style == "hidden":
+            # Print a single box with the player's name and the number of cards in the
+            # player's hand in it.
+            top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
+            bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
+            interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
+                        + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
+                        + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
+                        + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
+            repr_string = top + interior + bottom
+        elif style == "top":
+            repr_string = str(self[-1])
+        return repr_string
+    def __repr__(self):
+        return self.repr(self.style)
 
-# class Deck(list):
-#     """
-#     A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
-#     Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
-#     """
-#     suites = ["spades", "hearts", "diamonds", "clubs"]
-#     def __init__(self, n=1, start=7):
-#         ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
-#         base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
-#         shuffle(base_deck)
-#         super().__init__(base_deck)
+class Deck(list):
+    """
+    A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
+    Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
+    """
+    suites = ["spades", "hearts", "diamonds", "clubs"]
+    def __init__(self, n=1, start=7):
+        ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
+        base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
+        shuffle(base_deck)
+        super().__init__(base_deck)
 print("Hello, world!")
 
 lambda: None
@@ -684,56 +684,56 @@ class Hand(list):
             return self[position]
         else:
             raise IndexError
-    # def repr(self, style="horizontal", hide=["1"], card_width=8):
-    #     cards = []
-    #     for index, card in zip(Hand.alphabet, self):
-    #         if index in hide:
-    #             cards.append(Card.HIDDEN)
-    #         else:
-    #             cards.append(str(card))
-    #     if style == "horizontal":
-    #         try:
-    #             repr_string = "Foo"
-    #             # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
-    #             #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
-    #             #                                 for card in cards[:-1]])
-    #             #                         + cards[-1].split("\n")[index]
-    #             #                                         for index in range(7)]))
-    #         except IndexError:
-    #             # No cards to be displayed
-    #             repr_string = "\n".join([" " * self.maxwidth] * 7)
-    #     elif style == "vertical":
-    #         try:
-    #             repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
-    #         except IndexError:
-    #             repr_string = "\n".join([" " * 7] * 7)
-    #     elif style == "hidden":
-    #         # Print a single box with the player's name and the number of cards in the
-    #         # player's hand in it.
-    #         top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
-    #         bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
-            # interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
-            #             + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
-            #             + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
-            #             + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
-    #         repr_string = top + interior + bottom
-    #     elif style == "top":
-    #         repr_string = str(self[-1])
-    #     return repr_string
-    # def __repr__(self):
-    #     return self.repr(self.style)
+    def repr(self, style="horizontal", hide=["1"], card_width=8):
+        cards = []
+        for index, card in zip(Hand.alphabet, self):
+            if index in hide:
+                cards.append(Card.HIDDEN)
+            else:
+                cards.append(str(card))
+        if style == "horizontal":
+            try:
+                repr_string = "Foo"
+                repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
+                                     ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
+                                                for card in cards[:-1]])
+                                        + cards[-1].split("\n")[index]
+                                                        for index in range(7)]))
+            except IndexError:
+                # No cards to be displayed
+                repr_string = "\n".join([" " * self.maxwidth] * 7)
+        elif style == "vertical":
+            try:
+                repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
+            except IndexError:
+                repr_string = "\n".join([" " * 7] * 7)
+        elif style == "hidden":
+            # Print a single box with the player's name and the number of cards in the
+            # player's hand in it.
+            top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
+            bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
+            interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
+                        + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
+                        + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
+                        + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
+            repr_string = top + interior + bottom
+        elif style == "top":
+            repr_string = str(self[-1])
+        return repr_string
+    def __repr__(self):
+        return self.repr(self.style)
 
-# class Deck(list):
-#     """
-#     A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
-#     Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
-#     """
-#     suites = ["spades", "hearts", "diamonds", "clubs"]
-#     def __init__(self, n=1, start=7):
-#         ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
-#         base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
-#         shuffle(base_deck)
-#         super().__init__(base_deck)
+class Deck(list):
+    """
+    A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
+    Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
+    """
+    suites = ["spades", "hearts", "diamonds", "clubs"]
+    def __init__(self, n=1, start=7):
+        ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
+        base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
+        shuffle(base_deck)
+        super().__init__(base_deck)
 print("Hello, world!")
 
 lambda: None
@@ -877,56 +877,56 @@ class Hand(list):
             return self[position]
         else:
             raise IndexError
-    # def repr(self, style="horizontal", hide=["1"], card_width=8):
-    #     cards = []
-    #     for index, card in zip(Hand.alphabet, self):
-    #         if index in hide:
-    #             cards.append(Card.HIDDEN)
-    #         else:
-    #             cards.append(str(card))
-    #     if style == "horizontal":
-    #         try:
-    #             repr_string = "Foo"
-    #             # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
-    #             #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
-    #             #                                 for card in cards[:-1]])
-    #             #                         + cards[-1].split("\n")[index]
-    #             #                                         for index in range(7)]))
-    #         except IndexError:
-    #             # No cards to be displayed
-    #             repr_string = "\n".join([" " * self.maxwidth] * 7)
-    #     elif style == "vertical":
-    #         try:
-    #             repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
-    #         except IndexError:
-    #             repr_string = "\n".join([" " * 7] * 7)
-    #     elif style == "hidden":
-    #         # Print a single box with the player's name and the number of cards in the
-    #         # player's hand in it.
-    #         top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
-    #         bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
-            # interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
-            #             + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
-            #             + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
-            #             + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
-    #         repr_string = top + interior + bottom
-    #     elif style == "top":
-    #         repr_string = str(self[-1])
-    #     return repr_string
-    # def __repr__(self):
-    #     return self.repr(self.style)
+    def repr(self, style="horizontal", hide=["1"], card_width=8):
+        cards = []
+        for index, card in zip(Hand.alphabet, self):
+            if index in hide:
+                cards.append(Card.HIDDEN)
+            else:
+                cards.append(str(card))
+        if style == "horizontal":
+            try:
+                repr_string = "Foo"
+                repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
+                                     ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
+                                                for card in cards[:-1]])
+                                        + cards[-1].split("\n")[index]
+                                                        for index in range(7)]))
+            except IndexError:
+                # No cards to be displayed
+                repr_string = "\n".join([" " * self.maxwidth] * 7)
+        elif style == "vertical":
+            try:
+                repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
+            except IndexError:
+                repr_string = "\n".join([" " * 7] * 7)
+        elif style == "hidden":
+            # Print a single box with the player's name and the number of cards in the
+            # player's hand in it.
+            top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
+            bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
+            interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
+                        + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
+                        + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
+                        + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
+            repr_string = top + interior + bottom
+        elif style == "top":
+            repr_string = str(self[-1])
+        return repr_string
+    def __repr__(self):
+        return self.repr(self.style)
 
-# class Deck(list):
-#     """
-#     A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
-#     Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
-#     """
-#     suites = ["spades", "hearts", "diamonds", "clubs"]
-#     def __init__(self, n=1, start=7):
-#         ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
-#         base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
-#         shuffle(base_deck)
-#         super().__init__(base_deck)
+class Deck(list):
+    """
+    A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
+    Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
+    """
+    suites = ["spades", "hearts", "diamonds", "clubs"]
+    def __init__(self, n=1, start=7):
+        ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
+        base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
+        shuffle(base_deck)
+        super().__init__(base_deck)
 print("Hello, world!")
 
 lambda: None
@@ -1070,56 +1070,56 @@ class Hand(list):
             return self[position]
         else:
             raise IndexError
-    # def repr(self, style="horizontal", hide=["1"], card_width=8):
-    #     cards = []
-    #     for index, card in zip(Hand.alphabet, self):
-    #         if index in hide:
-    #             cards.append(Card.HIDDEN)
-    #         else:
-    #             cards.append(str(card))
-    #     if style == "horizontal":
-    #         try:
-    #             repr_string = "Foo"
-    #             # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
-    #             #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
-    #             #                                 for card in cards[:-1]])
-    #             #                         + cards[-1].split("\n")[index]
-    #             #                                         for index in range(7)]))
-    #         except IndexError:
-    #             # No cards to be displayed
-    #             repr_string = "\n".join([" " * self.maxwidth] * 7)
-    #     elif style == "vertical":
-    #         try:
-    #             repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
-    #         except IndexError:
-    #             repr_string = "\n".join([" " * 7] * 7)
-    #     elif style == "hidden":
-    #         # Print a single box with the player's name and the number of cards in the
-    #         # player's hand in it.
-    #         top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
-    #         bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
-            # interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
-            #             + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
-            #             + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
-            #             + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
-    #         repr_string = top + interior + bottom
-    #     elif style == "top":
-    #         repr_string = str(self[-1])
-    #     return repr_string
-    # def __repr__(self):
-    #     return self.repr(self.style)
+    def repr(self, style="horizontal", hide=["1"], card_width=8):
+        cards = []
+        for index, card in zip(Hand.alphabet, self):
+            if index in hide:
+                cards.append(Card.HIDDEN)
+            else:
+                cards.append(str(card))
+        if style == "horizontal":
+            try:
+                repr_string = "Foo"
+                repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
+                                     ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
+                                                for card in cards[:-1]])
+                                        + cards[-1].split("\n")[index]
+                                                        for index in range(7)]))
+            except IndexError:
+                # No cards to be displayed
+                repr_string = "\n".join([" " * self.maxwidth] * 7)
+        elif style == "vertical":
+            try:
+                repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
+            except IndexError:
+                repr_string = "\n".join([" " * 7] * 7)
+        elif style == "hidden":
+            # Print a single box with the player's name and the number of cards in the
+            # player's hand in it.
+            top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
+            bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
+            interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
+                        + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
+                        + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
+                        + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
+            repr_string = top + interior + bottom
+        elif style == "top":
+            repr_string = str(self[-1])
+        return repr_string
+    def __repr__(self):
+        return self.repr(self.style)
 
-# class Deck(list):
-#     """
-#     A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
-#     Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
-#     """
-#     suites = ["spades", "hearts", "diamonds", "clubs"]
-#     def __init__(self, n=1, start=7):
-#         ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
-#         base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
-#         shuffle(base_deck)
-#         super().__init__(base_deck)
+class Deck(list):
+    """
+    A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
+    Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
+    """
+    suites = ["spades", "hearts", "diamonds", "clubs"]
+    def __init__(self, n=1, start=7):
+        ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
+        base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
+        shuffle(base_deck)
+        super().__init__(base_deck)
 print("Hello, world!")
 
 lambda: None
@@ -1263,56 +1263,56 @@ class Hand(list):
             return self[position]
         else:
             raise IndexError
-    # def repr(self, style="horizontal", hide=["1"], card_width=8):
-    #     cards = []
-    #     for index, card in zip(Hand.alphabet, self):
-    #         if index in hide:
-    #             cards.append(Card.HIDDEN)
-    #         else:
-    #             cards.append(str(card))
-    #     if style == "horizontal":
-    #         try:
-    #             repr_string = "Foo"
-    #             # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
-    #             #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
-    #             #                                 for card in cards[:-1]])
-    #             #                         + cards[-1].split("\n")[index]
-    #             #                                         for index in range(7)]))
-    #         except IndexError:
-    #             # No cards to be displayed
-    #             repr_string = "\n".join([" " * self.maxwidth] * 7)
-    #     elif style == "vertical":
-    #         try:
-    #             repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
-    #         except IndexError:
-    #             repr_string = "\n".join([" " * 7] * 7)
-    #     elif style == "hidden":
-    #         # Print a single box with the player's name and the number of cards in the
-    #         # player's hand in it.
-    #         top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
-    #         bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
-            # interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
-            #             + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
-            #             + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
-            #             + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
-    #         repr_string = top + interior + bottom
-    #     elif style == "top":
-    #         repr_string = str(self[-1])
-    #     return repr_string
-    # def __repr__(self):
-    #     return self.repr(self.style)
+    def repr(self, style="horizontal", hide=["1"], card_width=8):
+        cards = []
+        for index, card in zip(Hand.alphabet, self):
+            if index in hide:
+                cards.append(Card.HIDDEN)
+            else:
+                cards.append(str(card))
+        if style == "horizontal":
+            try:
+                repr_string = "Foo"
+                repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
+                                     ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
+                                                for card in cards[:-1]])
+                                        + cards[-1].split("\n")[index]
+                                                        for index in range(7)]))
+            except IndexError:
+                # No cards to be displayed
+                repr_string = "\n".join([" " * self.maxwidth] * 7)
+        elif style == "vertical":
+            try:
+                repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
+            except IndexError:
+                repr_string = "\n".join([" " * 7] * 7)
+        elif style == "hidden":
+            # Print a single box with the player's name and the number of cards in the
+            # player's hand in it.
+            top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
+            bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
+            interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
+                        + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
+                        + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
+                        + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
+            repr_string = top + interior + bottom
+        elif style == "top":
+            repr_string = str(self[-1])
+        return repr_string
+    def __repr__(self):
+        return self.repr(self.style)
 
-# class Deck(list):
-#     """
-#     A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
-#     Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
-#     """
-#     suites = ["spades", "hearts", "diamonds", "clubs"]
-#     def __init__(self, n=1, start=7):
-#         ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
-#         base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
-#         shuffle(base_deck)
-#         super().__init__(base_deck)
+class Deck(list):
+    """
+    A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
+    Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
+    """
+    suites = ["spades", "hearts", "diamonds", "clubs"]
+    def __init__(self, n=1, start=7):
+        ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
+        base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
+        shuffle(base_deck)
+        super().__init__(base_deck)
 print("Hello, world!")
 
 lambda: None
@@ -1456,56 +1456,56 @@ class Hand(list):
             return self[position]
         else:
             raise IndexError
-    # def repr(self, style="horizontal", hide=["1"], card_width=8):
-    #     cards = []
-    #     for index, card in zip(Hand.alphabet, self):
-    #         if index in hide:
-    #             cards.append(Card.HIDDEN)
-    #         else:
-    #             cards.append(str(card))
-    #     if style == "horizontal":
-    #         try:
-    #             repr_string = "Foo"
-    #             # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
-    #             #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
-    #             #                                 for card in cards[:-1]])
-    #             #                         + cards[-1].split("\n")[index]
-    #             #                                         for index in range(7)]))
-    #         except IndexError:
-    #             # No cards to be displayed
-    #             repr_string = "\n".join([" " * self.maxwidth] * 7)
-    #     elif style == "vertical":
-    #         try:
-    #             repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
-    #         except IndexError:
-    #             repr_string = "\n".join([" " * 7] * 7)
-    #     elif style == "hidden":
-    #         # Print a single box with the player's name and the number of cards in the
-    #         # player's hand in it.
-    #         top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
-    #         bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
-            # interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
-            #             + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
-            #             + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
-            #             + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
-    #         repr_string = top + interior + bottom
-    #     elif style == "top":
-    #         repr_string = str(self[-1])
-    #     return repr_string
-    # def __repr__(self):
-    #     return self.repr(self.style)
+    def repr(self, style="horizontal", hide=["1"], card_width=8):
+        cards = []
+        for index, card in zip(Hand.alphabet, self):
+            if index in hide:
+                cards.append(Card.HIDDEN)
+            else:
+                cards.append(str(card))
+        if style == "horizontal":
+            try:
+                repr_string = "Foo"
+                repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
+                                     ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
+                                                for card in cards[:-1]])
+                                        + cards[-1].split("\n")[index]
+                                                        for index in range(7)]))
+            except IndexError:
+                # No cards to be displayed
+                repr_string = "\n".join([" " * self.maxwidth] * 7)
+        elif style == "vertical":
+            try:
+                repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
+            except IndexError:
+                repr_string = "\n".join([" " * 7] * 7)
+        elif style == "hidden":
+            # Print a single box with the player's name and the number of cards in the
+            # player's hand in it.
+            top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
+            bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
+            interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
+                        + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
+                        + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
+                        + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
+            repr_string = top + interior + bottom
+        elif style == "top":
+            repr_string = str(self[-1])
+        return repr_string
+    def __repr__(self):
+        return self.repr(self.style)
 
-# class Deck(list):
-#     """
-#     A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
-#     Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
-#     """
-#     suites = ["spades", "hearts", "diamonds", "clubs"]
-#     def __init__(self, n=1, start=7):
-#         ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
-#         base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
-#         shuffle(base_deck)
-#         super().__init__(base_deck)
+class Deck(list):
+    """
+    A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
+    Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
+    """
+    suites = ["spades", "hearts", "diamonds", "clubs"]
+    def __init__(self, n=1, start=7):
+        ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
+        base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
+        shuffle(base_deck)
+        super().__init__(base_deck)
 print("Hello, world!")
 
 lambda: None
@@ -1649,56 +1649,56 @@ class Hand(list):
             return self[position]
         else:
             raise IndexError
-    # def repr(self, style="horizontal", hide=["1"], card_width=8):
-    #     cards = []
-    #     for index, card in zip(Hand.alphabet, self):
-    #         if index in hide:
-    #             cards.append(Card.HIDDEN)
-    #         else:
-    #             cards.append(str(card))
-    #     if style == "horizontal":
-    #         try:
-    #             repr_string = "Foo"
-    #             # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
-    #             #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
-    #             #                                 for card in cards[:-1]])
-    #             #                         + cards[-1].split("\n")[index]
-    #             #                                         for index in range(7)]))
-    #         except IndexError:
-    #             # No cards to be displayed
-    #             repr_string = "\n".join([" " * self.maxwidth] * 7)
-    #     elif style == "vertical":
-    #         try:
-    #             repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
-    #         except IndexError:
-    #             repr_string = "\n".join([" " * 7] * 7)
-    #     elif style == "hidden":
-    #         # Print a single box with the player's name and the number of cards in the
-    #         # player's hand in it.
-    #         top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
-    #         bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
-            # interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
-            #             + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
-            #             + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
-            #             + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
-    #         repr_string = top + interior + bottom
-    #     elif style == "top":
-    #         repr_string = str(self[-1])
-    #     return repr_string
-    # def __repr__(self):
-    #     return self.repr(self.style)
+    def repr(self, style="horizontal", hide=["1"], card_width=8):
+        cards = []
+        for index, card in zip(Hand.alphabet, self):
+            if index in hide:
+                cards.append(Card.HIDDEN)
+            else:
+                cards.append(str(card))
+        if style == "horizontal":
+            try:
+                repr_string = "Foo"
+                repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
+                                     ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
+                                                for card in cards[:-1]])
+                                        + cards[-1].split("\n")[index]
+                                                        for index in range(7)]))
+            except IndexError:
+                # No cards to be displayed
+                repr_string = "\n".join([" " * self.maxwidth] * 7)
+        elif style == "vertical":
+            try:
+                repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
+            except IndexError:
+                repr_string = "\n".join([" " * 7] * 7)
+        elif style == "hidden":
+            # Print a single box with the player's name and the number of cards in the
+            # player's hand in it.
+            top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
+            bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
+            interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
+                        + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
+                        + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
+                        + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
+            repr_string = top + interior + bottom
+        elif style == "top":
+            repr_string = str(self[-1])
+        return repr_string
+    def __repr__(self):
+        return self.repr(self.style)
 
-# class Deck(list):
-#     """
-#     A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
-#     Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
-#     """
-#     suites = ["spades", "hearts", "diamonds", "clubs"]
-#     def __init__(self, n=1, start=7):
-#         ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
-#         base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
-#         shuffle(base_deck)
-#         super().__init__(base_deck)
+class Deck(list):
+    """
+    A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
+    Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
+    """
+    suites = ["spades", "hearts", "diamonds", "clubs"]
+    def __init__(self, n=1, start=7):
+        ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
+        base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
+        shuffle(base_deck)
+        super().__init__(base_deck)
 print("Hello, world!")
 
 lambda: None
@@ -1842,56 +1842,56 @@ class Hand(list):
             return self[position]
         else:
             raise IndexError
-    # def repr(self, style="horizontal", hide=["1"], card_width=8):
-    #     cards = []
-    #     for index, card in zip(Hand.alphabet, self):
-    #         if index in hide:
-    #             cards.append(Card.HIDDEN)
-    #         else:
-    #             cards.append(str(card))
-    #     if style == "horizontal":
-    #         try:
-    #             repr_string = "Foo"
-    #             # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
-    #             #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
-    #             #                                 for card in cards[:-1]])
-    #             #                         + cards[-1].split("\n")[index]
-    #             #                                         for index in range(7)]))
-    #         except IndexError:
-    #             # No cards to be displayed
-    #             repr_string = "\n".join([" " * self.maxwidth] * 7)
-    #     elif style == "vertical":
-    #         try:
-    #             repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
-    #         except IndexError:
-    #             repr_string = "\n".join([" " * 7] * 7)
-    #     elif style == "hidden":
-    #         # Print a single box with the player's name and the number of cards in the
-    #         # player's hand in it.
-    #         top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
-    #         bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
-            # interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
-            #             + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
-            #             + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
-            #             + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
-    #         repr_string = top + interior + bottom
-    #     elif style == "top":
-    #         repr_string = str(self[-1])
-    #     return repr_string
-    # def __repr__(self):
-    #     return self.repr(self.style)
+    def repr(self, style="horizontal", hide=["1"], card_width=8):
+        cards = []
+        for index, card in zip(Hand.alphabet, self):
+            if index in hide:
+                cards.append(Card.HIDDEN)
+            else:
+                cards.append(str(card))
+        if style == "horizontal":
+            try:
+                repr_string = "Foo"
+                repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
+                                     ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
+                                                for card in cards[:-1]])
+                                        + cards[-1].split("\n")[index]
+                                                        for index in range(7)]))
+            except IndexError:
+                # No cards to be displayed
+                repr_string = "\n".join([" " * self.maxwidth] * 7)
+        elif style == "vertical":
+            try:
+                repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
+            except IndexError:
+                repr_string = "\n".join([" " * 7] * 7)
+        elif style == "hidden":
+            # Print a single box with the player's name and the number of cards in the
+            # player's hand in it.
+            top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
+            bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
+            interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
+                        + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
+                        + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
+                        + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
+            repr_string = top + interior + bottom
+        elif style == "top":
+            repr_string = str(self[-1])
+        return repr_string
+    def __repr__(self):
+        return self.repr(self.style)
 
-# class Deck(list):
-#     """
-#     A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
-#     Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
-#     """
-#     suites = ["spades", "hearts", "diamonds", "clubs"]
-#     def __init__(self, n=1, start=7):
-#         ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
-#         base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
-#         shuffle(base_deck)
-#         super().__init__(base_deck)
+class Deck(list):
+    """
+    A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
+    Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
+    """
+    suites = ["spades", "hearts", "diamonds", "clubs"]
+    def __init__(self, n=1, start=7):
+        ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
+        base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
+        shuffle(base_deck)
+        super().__init__(base_deck)
 print("Hello, world!")
 
 lambda: None
@@ -2035,56 +2035,56 @@ class Hand(list):
             return self[position]
         else:
             raise IndexError
-    # def repr(self, style="horizontal", hide=["1"], card_width=8):
-    #     cards = []
-    #     for index, card in zip(Hand.alphabet, self):
-    #         if index in hide:
-    #             cards.append(Card.HIDDEN)
-    #         else:
-    #             cards.append(str(card))
-    #     if style == "horizontal":
-    #         try:
-    #             repr_string = "Foo"
-    #             # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
-    #             #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
-    #             #                                 for card in cards[:-1]])
-    #             #                         + cards[-1].split("\n")[index]
-    #             #                                         for index in range(7)]))
-    #         except IndexError:
-    #             # No cards to be displayed
-    #             repr_string = "\n".join([" " * self.maxwidth] * 7)
-    #     elif style == "vertical":
-    #         try:
-    #             repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
-    #         except IndexError:
-    #             repr_string = "\n".join([" " * 7] * 7)
-    #     elif style == "hidden":
-    #         # Print a single box with the player's name and the number of cards in the
-    #         # player's hand in it.
-    #         top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
-    #         bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
-            # interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
-            #             + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
-            #             + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
-            #             + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
-    #         repr_string = top + interior + bottom
-    #     elif style == "top":
-    #         repr_string = str(self[-1])
-    #     return repr_string
-    # def __repr__(self):
-    #     return self.repr(self.style)
+    def repr(self, style="horizontal", hide=["1"], card_width=8):
+        cards = []
+        for index, card in zip(Hand.alphabet, self):
+            if index in hide:
+                cards.append(Card.HIDDEN)
+            else:
+                cards.append(str(card))
+        if style == "horizontal":
+            try:
+                repr_string = "Foo"
+                repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
+                                     ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
+                                                for card in cards[:-1]])
+                                        + cards[-1].split("\n")[index]
+                                                        for index in range(7)]))
+            except IndexError:
+                # No cards to be displayed
+                repr_string = "\n".join([" " * self.maxwidth] * 7)
+        elif style == "vertical":
+            try:
+                repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
+            except IndexError:
+                repr_string = "\n".join([" " * 7] * 7)
+        elif style == "hidden":
+            # Print a single box with the player's name and the number of cards in the
+            # player's hand in it.
+            top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
+            bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
+            interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
+                        + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
+                        + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
+                        + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
+            repr_string = top + interior + bottom
+        elif style == "top":
+            repr_string = str(self[-1])
+        return repr_string
+    def __repr__(self):
+        return self.repr(self.style)
 
-# class Deck(list):
-#     """
-#     A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
-#     Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
-#     """
-#     suites = ["spades", "hearts", "diamonds", "clubs"]
-#     def __init__(self, n=1, start=7):
-#         ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
-#         base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
-#         shuffle(base_deck)
-#         super().__init__(base_deck)
+class Deck(list):
+    """
+    A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
+    Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
+    """
+    suites = ["spades", "hearts", "diamonds", "clubs"]
+    def __init__(self, n=1, start=7):
+        ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
+        base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
+        shuffle(base_deck)
+        super().__init__(base_deck)
 print("Hello, world!")
 
 lambda: None
@@ -2228,56 +2228,56 @@ class Hand(list):
             return self[position]
         else:
             raise IndexError
-    # def repr(self, style="horizontal", hide=["1"], card_width=8):
-    #     cards = []
-    #     for index, card in zip(Hand.alphabet, self):
-    #         if index in hide:
-    #             cards.append(Card.HIDDEN)
-    #         else:
-    #             cards.append(str(card))
-    #     if style == "horizontal":
-    #         try:
-    #             repr_string = "Foo"
-    #             # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
-    #             #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
-    #             #                                 for card in cards[:-1]])
-    #             #                         + cards[-1].split("\n")[index]
-    #             #                                         for index in range(7)]))
-    #         except IndexError:
-    #             # No cards to be displayed
-    #             repr_string = "\n".join([" " * self.maxwidth] * 7)
-    #     elif style == "vertical":
-    #         try:
-    #             repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
-    #         except IndexError:
-    #             repr_string = "\n".join([" " * 7] * 7)
-    #     elif style == "hidden":
-    #         # Print a single box with the player's name and the number of cards in the
-    #         # player's hand in it.
-    #         top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
-    #         bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
-            # interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
-            #             + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
-            #             + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
-            #             + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
-    #         repr_string = top + interior + bottom
-    #     elif style == "top":
-    #         repr_string = str(self[-1])
-    #     return repr_string
-    # def __repr__(self):
-    #     return self.repr(self.style)
+    def repr(self, style="horizontal", hide=["1"], card_width=8):
+        cards = []
+        for index, card in zip(Hand.alphabet, self):
+            if index in hide:
+                cards.append(Card.HIDDEN)
+            else:
+                cards.append(str(card))
+        if style == "horizontal":
+            try:
+                repr_string = "Foo"
+                repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
+                                     ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
+                                                for card in cards[:-1]])
+                                        + cards[-1].split("\n")[index]
+                                                        for index in range(7)]))
+            except IndexError:
+                # No cards to be displayed
+                repr_string = "\n".join([" " * self.maxwidth] * 7)
+        elif style == "vertical":
+            try:
+                repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
+            except IndexError:
+                repr_string = "\n".join([" " * 7] * 7)
+        elif style == "hidden":
+            # Print a single box with the player's name and the number of cards in the
+            # player's hand in it.
+            top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
+            bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
+            interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
+                        + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
+                        + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
+                        + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
+            repr_string = top + interior + bottom
+        elif style == "top":
+            repr_string = str(self[-1])
+        return repr_string
+    def __repr__(self):
+        return self.repr(self.style)
 
-# class Deck(list):
-#     """
-#     A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
-#     Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
-#     """
-#     suites = ["spades", "hearts", "diamonds", "clubs"]
-#     def __init__(self, n=1, start=7):
-#         ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
-#         base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
-#         shuffle(base_deck)
-#         super().__init__(base_deck)
+class Deck(list):
+    """
+    A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
+    Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
+    """
+    suites = ["spades", "hearts", "diamonds", "clubs"]
+    def __init__(self, n=1, start=7):
+        ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
+        base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
+        shuffle(base_deck)
+        super().__init__(base_deck)
 print("Hello, world!")
 
 lambda: None
@@ -2421,56 +2421,56 @@ class Hand(list):
             return self[position]
         else:
             raise IndexError
-    # def repr(self, style="horizontal", hide=["1"], card_width=8):
-    #     cards = []
-    #     for index, card in zip(Hand.alphabet, self):
-    #         if index in hide:
-    #             cards.append(Card.HIDDEN)
-    #         else:
-    #             cards.append(str(card))
-    #     if style == "horizontal":
-    #         try:
-    #             repr_string = "Foo"
-    #             # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
-    #             #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
-    #             #                                 for card in cards[:-1]])
-    #             #                         + cards[-1].split("\n")[index]
-    #             #                                         for index in range(7)]))
-    #         except IndexError:
-    #             # No cards to be displayed
-    #             repr_string = "\n".join([" " * self.maxwidth] * 7)
-    #     elif style == "vertical":
-    #         try:
-    #             repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
-    #         except IndexError:
-    #             repr_string = "\n".join([" " * 7] * 7)
-    #     elif style == "hidden":
-    #         # Print a single box with the player's name and the number of cards in the
-    #         # player's hand in it.
-    #         top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
-    #         bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
-            # interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
-            #             + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
-            #             + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
-            #             + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
-    #         repr_string = top + interior + bottom
-    #     elif style == "top":
-    #         repr_string = str(self[-1])
-    #     return repr_string
-    # def __repr__(self):
-    #     return self.repr(self.style)
+    def repr(self, style="horizontal", hide=["1"], card_width=8):
+        cards = []
+        for index, card in zip(Hand.alphabet, self):
+            if index in hide:
+                cards.append(Card.HIDDEN)
+            else:
+                cards.append(str(card))
+        if style == "horizontal":
+            try:
+                repr_string = "Foo"
+                repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
+                                     ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
+                                                for card in cards[:-1]])
+                                        + cards[-1].split("\n")[index]
+                                                        for index in range(7)]))
+            except IndexError:
+                # No cards to be displayed
+                repr_string = "\n".join([" " * self.maxwidth] * 7)
+        elif style == "vertical":
+            try:
+                repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
+            except IndexError:
+                repr_string = "\n".join([" " * 7] * 7)
+        elif style == "hidden":
+            # Print a single box with the player's name and the number of cards in the
+            # player's hand in it.
+            top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
+            bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
+            interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
+                        + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
+                        + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
+                        + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
+            repr_string = top + interior + bottom
+        elif style == "top":
+            repr_string = str(self[-1])
+        return repr_string
+    def __repr__(self):
+        return self.repr(self.style)
 
-# class Deck(list):
-#     """
-#     A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
-#     Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
-#     """
-#     suites = ["spades", "hearts", "diamonds", "clubs"]
-#     def __init__(self, n=1, start=7):
-#         ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
-#         base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
-#         shuffle(base_deck)
-#         super().__init__(base_deck)
+class Deck(list):
+    """
+    A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
+    Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
+    """
+    suites = ["spades", "hearts", "diamonds", "clubs"]
+    def __init__(self, n=1, start=7):
+        ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
+        base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
+        shuffle(base_deck)
+        super().__init__(base_deck)
 print("Hello, world!")
 
 lambda: None
@@ -2614,56 +2614,56 @@ class Hand(list):
             return self[position]
         else:
             raise IndexError
-    # def repr(self, style="horizontal", hide=["1"], card_width=8):
-    #     cards = []
-    #     for index, card in zip(Hand.alphabet, self):
-    #         if index in hide:
-    #             cards.append(Card.HIDDEN)
-    #         else:
-    #             cards.append(str(card))
-    #     if style == "horizontal":
-    #         try:
-    #             repr_string = "Foo"
-    #             # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
-    #             #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
-    #             #                                 for card in cards[:-1]])
-    #             #                         + cards[-1].split("\n")[index]
-    #             #                                         for index in range(7)]))
-    #         except IndexError:
-    #             # No cards to be displayed
-    #             repr_string = "\n".join([" " * self.maxwidth] * 7)
-    #     elif style == "vertical":
-    #         try:
-    #             repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
-    #         except IndexError:
-    #             repr_string = "\n".join([" " * 7] * 7)
-    #     elif style == "hidden":
-    #         # Print a single box with the player's name and the number of cards in the
-    #         # player's hand in it.
-    #         top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
-    #         bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
-            # interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
-            #             + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
-            #             + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
-            #             + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
-    #         repr_string = top + interior + bottom
-    #     elif style == "top":
-    #         repr_string = str(self[-1])
-    #     return repr_string
-    # def __repr__(self):
-    #     return self.repr(self.style)
+    def repr(self, style="horizontal", hide=["1"], card_width=8):
+        cards = []
+        for index, card in zip(Hand.alphabet, self):
+            if index in hide:
+                cards.append(Card.HIDDEN)
+            else:
+                cards.append(str(card))
+        if style == "horizontal":
+            try:
+                repr_string = "Foo"
+                repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
+                                     ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
+                                                for card in cards[:-1]])
+                                        + cards[-1].split("\n")[index]
+                                                        for index in range(7)]))
+            except IndexError:
+                # No cards to be displayed
+                repr_string = "\n".join([" " * self.maxwidth] * 7)
+        elif style == "vertical":
+            try:
+                repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
+            except IndexError:
+                repr_string = "\n".join([" " * 7] * 7)
+        elif style == "hidden":
+            # Print a single box with the player's name and the number of cards in the
+            # player's hand in it.
+            top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
+            bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
+            interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
+                        + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
+                        + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
+                        + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
+            repr_string = top + interior + bottom
+        elif style == "top":
+            repr_string = str(self[-1])
+        return repr_string
+    def __repr__(self):
+        return self.repr(self.style)
 
-# class Deck(list):
-#     """
-#     A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
-#     Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
-#     """
-#     suites = ["spades", "hearts", "diamonds", "clubs"]
-#     def __init__(self, n=1, start=7):
-#         ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
-#         base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
-#         shuffle(base_deck)
-#         super().__init__(base_deck)
+class Deck(list):
+    """
+    A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
+    Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
+    """
+    suites = ["spades", "hearts", "diamonds", "clubs"]
+    def __init__(self, n=1, start=7):
+        ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
+        base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
+        shuffle(base_deck)
+        super().__init__(base_deck)
 print("Hello, world!")
 
 lambda: None
@@ -2807,56 +2807,56 @@ class Hand(list):
             return self[position]
         else:
             raise IndexError
-    # def repr(self, style="horizontal", hide=["1"], card_width=8):
-    #     cards = []
-    #     for index, card in zip(Hand.alphabet, self):
-    #         if index in hide:
-    #             cards.append(Card.HIDDEN)
-    #         else:
-    #             cards.append(str(card))
-    #     if style == "horizontal":
-    #         try:
-    #             repr_string = "Foo"
-    #             # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
-    #             #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
-    #             #                                 for card in cards[:-1]])
-    #             #                         + cards[-1].split("\n")[index]
-    #             #                                         for index in range(7)]))
-    #         except IndexError:
-    #             # No cards to be displayed
-    #             repr_string = "\n".join([" " * self.maxwidth] * 7)
-    #     elif style == "vertical":
-    #         try:
-    #             repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
-    #         except IndexError:
-    #             repr_string = "\n".join([" " * 7] * 7)
-    #     elif style == "hidden":
-    #         # Print a single box with the player's name and the number of cards in the
-    #         # player's hand in it.
-    #         top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
-    #         bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
-            # interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
-            #             + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
-            #             + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
-            #             + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
-    #         repr_string = top + interior + bottom
-    #     elif style == "top":
-    #         repr_string = str(self[-1])
-    #     return repr_string
-    # def __repr__(self):
-    #     return self.repr(self.style)
+    def repr(self, style="horizontal", hide=["1"], card_width=8):
+        cards = []
+        for index, card in zip(Hand.alphabet, self):
+            if index in hide:
+                cards.append(Card.HIDDEN)
+            else:
+                cards.append(str(card))
+        if style == "horizontal":
+            try:
+                repr_string = "Foo"
+                # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
+                #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
+                #                                 for card in cards[:-1]])
+                #                         + cards[-1].split("\n")[index]
+                #                                         for index in range(7)]))
+            except IndexError:
+                # No cards to be displayed
+                repr_string = "\n".join([" " * self.maxwidth] * 7)
+        elif style == "vertical":
+            try:
+                repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
+            except IndexError:
+                repr_string = "\n".join([" " * 7] * 7)
+        elif style == "hidden":
+            # Print a single box with the player's name and the number of cards in the
+            # player's hand in it.
+            top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
+            bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
+            interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
+                        + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
+                        + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
+                        + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
+            repr_string = top + interior + bottom
+        elif style == "top":
+            repr_string = str(self[-1])
+        return repr_string
+    def __repr__(self):
+        return self.repr(self.style)
 
-# class Deck(list):
-#     """
-#     A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
-#     Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
-#     """
-#     suites = ["spades", "hearts", "diamonds", "clubs"]
-#     def __init__(self, n=1, start=7):
-#         ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
-#         base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
-#         shuffle(base_deck)
-#         super().__init__(base_deck)
+class Deck(list):
+    """
+    A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
+    Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
+    """
+    suites = ["spades", "hearts", "diamonds", "clubs"]
+    def __init__(self, n=1, start=7):
+        ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
+        base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
+        shuffle(base_deck)
+        super().__init__(base_deck)
 print("Hello, world!")
 
 lambda: None
@@ -3000,56 +3000,56 @@ class Hand(list):
             return self[position]
         else:
             raise IndexError
-    # def repr(self, style="horizontal", hide=["1"], card_width=8):
-    #     cards = []
-    #     for index, card in zip(Hand.alphabet, self):
-    #         if index in hide:
-    #             cards.append(Card.HIDDEN)
-    #         else:
-    #             cards.append(str(card))
-    #     if style == "horizontal":
-    #         try:
-    #             repr_string = "Foo"
-    #             # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
-    #             #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
-    #             #                                 for card in cards[:-1]])
-    #             #                         + cards[-1].split("\n")[index]
-    #             #                                         for index in range(7)]))
-    #         except IndexError:
-    #             # No cards to be displayed
-    #             repr_string = "\n".join([" " * self.maxwidth] * 7)
-    #     elif style == "vertical":
-    #         try:
-    #             repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
-    #         except IndexError:
-    #             repr_string = "\n".join([" " * 7] * 7)
-    #     elif style == "hidden":
-    #         # Print a single box with the player's name and the number of cards in the
-    #         # player's hand in it.
-    #         top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
-    #         bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
-            # interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
-            #             + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
-            #             + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
-            #             + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
-    #         repr_string = top + interior + bottom
-    #     elif style == "top":
-    #         repr_string = str(self[-1])
-    #     return repr_string
-    # def __repr__(self):
-    #     return self.repr(self.style)
+    def repr(self, style="horizontal", hide=["1"], card_width=8):
+        cards = []
+        for index, card in zip(Hand.alphabet, self):
+            if index in hide:
+                cards.append(Card.HIDDEN)
+            else:
+                cards.append(str(card))
+        if style == "horizontal":
+            try:
+                repr_string = "Foo"
+                # repr_string = "\n".join(map(lambda arg: "{:<{maxwidth}}".format(arg, maxwidth=self.maxwidth),
+                #                      ["".join([card.split("\n")[index][:card_width] + " " * max(card_width - 7, 0)
+                #                                 for card in cards[:-1]])
+                #                         + cards[-1].split("\n")[index]
+                #                                         for index in range(7)]))
+            except IndexError:
+                # No cards to be displayed
+                repr_string = "\n".join([" " * self.maxwidth] * 7)
+        elif style == "vertical":
+            try:
+                repr_string = "\n".join([l for c in cards[:-1] for l in str(c).split("\n")[:4]]) + "\n" + cards[-1]
+            except IndexError:
+                repr_string = "\n".join([" " * 7] * 7)
+        elif style == "hidden":
+            # Print a single box with the player's name and the number of cards in the
+            # player's hand in it.
+            top = u"\u256d" + u"\u2500"*5 + u"\u256e\n"
+            bottom = u"\u2570"+ u"\u2500"*5 + u"\u256f"
+            interior = (u"\u2502" + u"/" * 5 + u"\u2502\n"
+                        + u"\u2502" + "{:/^5}".format(self.name) + u"\u2502\n"
+                        + u"\u2502" + "/" + "{:/>2}".format(len(self)) + "//" + u"\u2502\n"
+                        + (u"\u2502" + "/" * 5 + u"\u2502\n") * 2 )
+            repr_string = top + interior + bottom
+        elif style == "top":
+            repr_string = str(self[-1])
+        return repr_string
+    def __repr__(self):
+        return self.repr(self.style)
 
-# class Deck(list):
-#     """
-#     A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
-#     Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
-#     """
-#     suites = ["spades", "hearts", "diamonds", "clubs"]
-#     def __init__(self, n=1, start=7):
-#         ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
-#         base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
-#         shuffle(base_deck)
-#         super().__init__(base_deck)
+class Deck(list):
+    """
+    A Deck(n, s) is a shuffeled list of n copies of the cartesian product of
+    Deck.suites and ranks from s to 10 and "jack", "queen", "king" and "ace".
+    """
+    suites = ["spades", "hearts", "diamonds", "clubs"]
+    def __init__(self, n=1, start=7):
+        ranks = [str(k) for k in range(start, 11)] + ["jack", "queen", "king", "ace"]
+        base_deck = list(map(lambda c: Card(*c), list(product(ranks, Deck.suites)))) * n
+        shuffle(base_deck)
+        super().__init__(base_deck)
 print("Hello, world!")
 
 lambda: None

@@ -213,9 +213,9 @@ fn simple_stmts(input: ParserState) -> ParseResult<Block> {
 //     | global_stmt
 //     | nonlocal_stmt
 fn simple_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
-    // if let Some(result) = try_remember(input, simple_stmt) {
-    //     return result;
-    // }
+    if let Some(result) = try_remember(input, simple_stmt) {
+        return result;
+    }
     let result = assignment
         .or(type_alias)
         .or(star_expressions.map(|e| {
@@ -234,7 +234,7 @@ fn simple_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
         .or(global_stmt)
         .or(nonlocal_stmt)
         .parse(input);
-    // save_result(input, simple_stmt, &result);
+    save_result(input, simple_stmt, &result);
     result
 }
 
@@ -632,9 +632,9 @@ fn dotted_name(input: ParserState) -> ParseResult<Vec<Name>> {
 //     | NEWLINE INDENT statements DEDENT
 //     | simple_stmts
 fn block(input: ParserState) -> ParseResult<Block> {
-    // if let Some(result) = try_remember(input, block) {
-    //     return result;
-    // }
+    if let Some(result) = try_remember(input, block) {
+        return result;
+    }
     let result = left(
         right(pair(tok(TT::NEWLINE), tok(TT::INDENT)), statements),
         tok(TT::DEDENT),
@@ -642,7 +642,7 @@ fn block(input: ParserState) -> ParseResult<Block> {
     .or(simple_stmts)
     .or(on_error_pass(invalid_block))
     .parse(input);
-    // save_result(input, block, &result);
+    save_result(input, block, &result);
     result
 }
 

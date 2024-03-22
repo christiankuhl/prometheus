@@ -30,7 +30,7 @@ fn run_script(filename: &str) -> Result<(), String> {
         Ok(())
     } else {
         for error in errors {
-            // println!("Error: {error:?}");
+            println!("Error: {error:?}");
         }
         Err("Foo".to_string())
     };
