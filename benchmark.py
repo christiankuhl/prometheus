@@ -11,7 +11,14 @@ class Benchmark:
     def __init__(self, num_tests=NUM_TESTS, test_file=TEST_FILE) -> None:
         self.num_tests = num_tests
         self.test_file = test_file
-    def run(self):
+    def run(self, rust_only=False):
+        if rust_only:
+            print("Running Rust parser...")
+            total = 0
+            for _ in range(self.num_tests):
+                total += parse_time_rust(self.test_file)
+            print(f"Average time Rust: {total:.0f}ms")
+            return
         python = self.num_tests
         rust = self.num_tests
         total_cpython = 0
@@ -53,6 +60,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Benchmark script: our parser vs. the native CPython parser")
     parser.add_argument("-f", "--file", type=str, default="tests/big.py", help="Path to the file to benchmark")
     parser.add_argument("-n", "--num_tests", type=int, default=1000, help="Number of tests to run")
+    parser.add_argument("-r", "--rust_only", default=False, help="Only run Rust parser", action="store_true")
     args = parser.parse_args()
-    Benchmark(args.num_tests, args.file).run()
+    Benchmark(args.num_tests, args.file).run(args.rust_only)
 
