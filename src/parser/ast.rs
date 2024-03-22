@@ -122,6 +122,8 @@ pub struct Parameter {
     pub(super) starred: bool,
     pub(super) double_starred: bool,
     pub(super) type_comment: Option<Rc<str>>,
+    pub(super) keyword_only: bool,
+    pub(super) positional_only: bool,
 }
 
 impl Parameter {
@@ -133,6 +135,8 @@ impl Parameter {
             starred: false,
             double_starred: false,
             type_comment: None,
+            keyword_only: false,
+            positional_only: false,
         }
     }
     pub(super) fn with_annotation(name: Name, annotation: Option<Rc<Expression>>) -> Self {
@@ -143,6 +147,8 @@ impl Parameter {
             starred: false,
             double_starred: false,
             type_comment: None,
+            keyword_only: false,
+            positional_only: false,
         }
     }
     pub(super) fn kwargs(mut self) -> Self {
@@ -160,6 +166,8 @@ impl From<Name> for Parameter {
             starred: false,
             double_starred: false,
             type_comment: None,
+            keyword_only: false,
+            positional_only: false,
         }
     }
 }

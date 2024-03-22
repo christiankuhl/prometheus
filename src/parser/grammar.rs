@@ -861,6 +861,10 @@ fn slash_no_default(input: ParserState) -> ParseResult<Vec<Parameter>> {
         one_or_more(param_no_default),
         pair(tok(TT::SLASH), lookahead(tok(TT::RPAR))),
     ))
+    .map(|mut v| {
+        v.iter_mut().for_each(|p| p.positional_only = true);
+        v
+    })
     .parse(input)
 }
 
@@ -884,6 +888,7 @@ fn slash_with_default(input: ParserState) -> ParseResult<Vec<Parameter>> {
     ))
     .map(|(mut u, v)| {
         u.extend(v);
+        u.iter_mut().for_each(|p| p.positional_only = true);
         u
     })
     .parse(input)
@@ -900,23 +905,29 @@ fn star_etc(input: ParserState) -> ParseResult<Vec<Parameter>> {
             right(tok(TT::STAR), param_no_default),
             pair(zero_or_more(param_maybe_default), maybe(kwds)),
         )
-        .map(|(v, (mut u, w))| {
-            u.push(v);
+        .map(|(mut v, (mut u, w))| {
+            v.starred = true;
+            let mut v = vec![v];
+            u.iter_mut().for_each(|a| a.keyword_only = true);
+            v.extend(u.clone());
             if let Some(Expression::Parameters(p, _)) = w.as_deref() {
-                u.extend(p.clone())
+                v.extend(p.clone())
             };
-            u
+            v
         }))
         .or(pair(
             right(tok(TT::STAR), param_no_default_star_annotation),
             pair(zero_or_more(param_maybe_default), maybe(kwds)),
         )
-        .map(|(v, (mut u, w))| {
-            u.push(v);
+        .map(|(mut v, (mut u, w))| {
+            v.starred = true;
+            let mut v = vec![v];
+            u.iter_mut().for_each(|a| a.keyword_only = true);
+            v.extend(u.clone());
             if let Some(Expression::Parameters(p, _)) = w.as_deref() {
-                u.extend(p.clone())
+                v.extend(p.clone())
             };
-            u
+            v
         }))
         .or(pair(
             right(
@@ -926,12 +937,19 @@ fn star_etc(input: ParserState) -> ParseResult<Vec<Parameter>> {
             maybe(kwds),
         )
         .map(|(mut u, v)| {
+            u.iter_mut().for_each(|a| a.keyword_only = true);
             if let Some(Expression::Parameters(p, _)) = v.as_deref() {
                 u.extend(p.clone())
             };
             u
         }))
-        .or(kwds.map(|_| vec![]))
+        .or(kwds.map(|p| {
+            if let Expression::Parameters(p, _) = p.as_ref() {
+                p.clone()
+            } else {
+                vec![]
+            }
+        }))
         .parse(input)
 }
 
@@ -2738,6 +2756,10 @@ fn lambda_slash_no_default(input: ParserState) -> ParseResult<Vec<Parameter>> {
         left(one_or_more(lambda_param_no_default), tok(TT::SLASH)),
         tok(TT::COMMA).discard().or(lookahead(tok(TT::COLON))),
     )
+    .map(|mut v| {
+        v.iter_mut().for_each(|p| p.positional_only = true);
+        v
+    })
     .parse(input)
 }
 
@@ -2757,6 +2779,7 @@ fn lambda_slash_with_default(input: ParserState) -> ParseResult<Vec<Parameter>> 
     )
     .map(|(mut p, q)| {
         p.extend(q);
+        p.iter_mut().for_each(|a| a.positional_only = true);
         p
     })
     .parse(input)
@@ -2775,6 +2798,7 @@ fn lambda_star_etc(input: ParserState) -> ParseResult<Rc<Expression>> {
         .map(|(mut p, (mut q, r))| {
             let u = p.span().till(&q).or(&r);
             p.starred = true;
+            q.iter_mut().for_each(|a| a.keyword_only = true);
             q.insert(0, p);
             if let Some(kwds) = r {
                 match kwds.as_ref() {
@@ -2793,6 +2817,7 @@ fn lambda_star_etc(input: ParserState) -> ParseResult<Rc<Expression>> {
         )
         .map(|(mut p, q)| {
             let u = p.span().till(&p).or(&q);
+            p.iter_mut().for_each(|a| a.keyword_only = true);
             if let Some(kwds) = q.as_deref() {
                 match kwds {
                     Expression::Parameters(ps, _) => p.extend(ps.clone()),
@@ -2815,7 +2840,7 @@ fn lambda_kwds(input: ParserState) -> ParseResult<Rc<Expression>> {
         .or(
             right(tok(TT::DOUBLESTAR), lambda_param_no_default).map(|param| {
                 let span = param.span();
-                Rc::new(Expression::Parameters(vec![param], span))
+                Rc::new(Expression::Parameters(vec![param.kwargs()], span))
             }),
         )
         .parse(input)
