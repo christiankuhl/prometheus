@@ -1,4 +1,4 @@
-use super::locations::{Span, Locatable};
+use super::locations::{Locatable, Span};
 use super::tokenizer::{
     Token, TokenType as TT, BINNUMBER, DECNUMBER, FLOATNUMBER, HEXNUMBER, IMAGNUMBER, OCTNUMBER,
 };
@@ -25,7 +25,7 @@ pub enum Statement {
     ClassDefinition(ClassDefinition, Span),
     With(
         Vec<Rc<Expression>>,    // item
-        Block,         // block
+        Block,                  // block
         Option<Rc<Expression>>, // type comment
         bool,                   // async
         Span,
@@ -33,25 +33,20 @@ pub enum Statement {
     For(
         Vec<Rc<Expression>>,    // targets
         Vec<Rc<Expression>>,    // expression
-        Block,         // block
-        Option<Block>, // else block
+        Block,                  // block
+        Option<Block>,          // else block
         Option<Rc<Expression>>, // type comment
         bool,                   // async
         Span,
     ),
     Try(
-        Block,         // block
-        Vec<Rc<Expression>>,    // except_block
-        Option<Block>, // else_block
-        Option<Block>, // finally_block
+        Block,               // block
+        Vec<Rc<Expression>>, // except_block
+        Option<Block>,       // else_block
+        Option<Block>,       // finally_block
         Span,
     ),
-    While(
-        Rc<Expression>,
-        Block,
-        Option<Block>,
-        Span,
-    ),
+    While(Rc<Expression>, Block, Option<Block>, Span),
     Assignment(
         Vec<Rc<Expression>>,         // targets
         Option<Operator>,            // augassign
@@ -79,7 +74,7 @@ pub struct Name {
 
 impl std::fmt::Debug for Name {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Name(\"{}\")", self.name)
+        write!(f, "\"{}\"", self.name)
     }
 }
 
@@ -201,13 +196,7 @@ pub enum Expression {
     Call(Rc<Expression>, Arguments, Span),
     Slice(Rc<Expression>, Vec<Slice>, Span),
     WithItem(Rc<Expression>, Option<Rc<Expression>>, Span),
-    ExceptBlock(
-        Option<Rc<Expression>>,
-        Option<Name>,
-        Block,
-        bool,
-        Span,
-    ),
+    ExceptBlock(Option<Rc<Expression>>, Option<Name>, Block, bool, Span),
     Walrus(Rc<Expression>, Rc<Expression>, Span),
     Ternary(Rc<Expression>, Rc<Expression>, Rc<Expression>, Span),
     Comparison(Rc<Expression>, Vec<(Operator, Rc<Expression>)>, Span),
