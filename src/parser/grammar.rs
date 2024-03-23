@@ -1058,13 +1058,13 @@ fn default(input: ParserState) -> ParseResult<Rc<Expression>> {
 fn if_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
     on_error_pass(invalid_if_stmt)
         .or(pair(
+            token_nodiscard(TT::KEYWORD, "if"),
             pair(
-                pair(token_nodiscard(TT::KEYWORD, "if"), named_expression),
-                right(tok(TT::COLON), block),
+                pair(named_expression, right(tok(TT::COLON), block)),
+                elif_stmt.or(maybe(else_block).map(|e| (vec![], e))),
             ),
-            elif_stmt.or(maybe(else_block).map(|e| (vec![], e))),
         )
-        .map(|(((t, expr), then), (elif, els))| {
+        .map(|(t, ((expr, then), (elif, els)))| {
             let s = t.span.till_block(&then).or(&els);
             Rc::new(Statement::If(expr, then, elif, els, s))
         }))
@@ -1091,8 +1091,8 @@ fn elif_stmt(input: ParserState) -> ParseResult<(Vec<(Rc<Expression>, Block)>, O
 fn else_block(input: ParserState) -> ParseResult<Block> {
     on_error_pass(invalid_else_stmt)
         .or(right(
-            pair(token(TT::KEYWORD, "else"), tok(TT::COLON)),
-            block,
+            token(TT::KEYWORD, "else"),
+            right(tok(TT::COLON), block),
         ))
         .parse(input)
 }
@@ -1105,13 +1105,13 @@ fn else_block(input: ParserState) -> ParseResult<Block> {
 fn while_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
     on_error_pass(invalid_while_stmt)
         .or(pair(
+            token_nodiscard(TT::KEYWORD, "while"),
             pair(
-                token_nodiscard(TT::KEYWORD, "while"),
                 pair(left(named_expression, tok(TT::COLON)), block),
+                maybe(else_block),
             ),
-            maybe(else_block),
         )
-        .map(|((t, (e, b)), els)| {
+        .map(|(t, ((e, b), els))| {
             let s = t.span.till_block(&b).or(&els);
             Rc::new(Statement::While(e, b, els, s))
         }))
@@ -1127,19 +1127,19 @@ fn while_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
 fn for_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
     on_error_pass(invalid_for_stmt)
         .or(pair(
-            maybe(token(TT::KEYWORD, "async")),
             pair(
-                left(
-                    pair(token_nodiscard(TT::KEYWORD, "for"), star_targets),
-                    token(TT::KEYWORD, "in"),
-                ),
+                maybe(token(TT::KEYWORD, "async")),
+                token_nodiscard(TT::KEYWORD, "for"),
+            ),
+            pair(
+                left(star_targets, token(TT::KEYWORD, "in")),
                 pair(
                     left(star_expressions, tok(TT::COLON)),
                     pair(pair(maybe(tok(TT::TYPE_COMMENT)), block), maybe(else_block)),
                 ),
             ),
         )
-        .map(|(a, ((t, tgt), (expr, ((tc, blck), els))))| {
+        .map(|((a, t), (tgt, (expr, ((tc, blck), els))))| {
             let span = t.span.till_block(&blck).or(&els);
             Rc::new(Statement::For(
                 tgt,
@@ -1166,27 +1166,30 @@ fn for_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
 fn with_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
     on_error_pass(invalid_with_stmt_indent)
         .or(pair(
-            maybe(token(TT::KEYWORD, "async")),
             pair(
-                pair(
-                    left(token_nodiscard(TT::KEYWORD, "with"), tok(TT::LPAR)),
+                maybe(token(TT::KEYWORD, "async")),
+                token_nodiscard(TT::KEYWORD, "with"),
+            ),
+            pair(
+                right(
+                    tok(TT::LPAR),
                     left(sep_by(with_item, TT::COMMA), maybe(tok(TT::COMMA))),
                 ),
                 right(pair(tok(TT::RPAR), tok(TT::COLON)), block),
             ),
         )
-        .map(|(a, ((t, w), b))| (a, (t, (w, (None, b)))))
+        .map(|((a, t), (w, b))| ((a, t), (w, (None, b))))
         .or(pair(
-            maybe(token(TT::KEYWORD, "async")),
             pair(
+                maybe(token(TT::KEYWORD, "async")),
                 token_nodiscard(TT::KEYWORD, "with"),
-                pair(
-                    sep_by(with_item, TT::COMMA),
-                    right(tok(TT::COLON), pair(maybe(tok(TT::TYPE_COMMENT)), block)),
-                ),
+            ),
+            pair(
+                sep_by(with_item, TT::COMMA),
+                right(tok(TT::COLON), pair(maybe(tok(TT::TYPE_COMMENT)), block)),
             ),
         ))
-        .map(|(a, (wt, (w, (t, b))))| {
+        .map(|((a, wt), (w, (t, b)))| {
             let s = wt.span.till_block(&b);
             Rc::new(Statement::With(
                 w,
@@ -1229,32 +1232,18 @@ fn try_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
     on_error_pass(invalid_try_stmt)
         .or(pair(
             left(token_nodiscard(TT::KEYWORD, "try"), tok(TT::COLON)),
-            pair(block, finally_block),
-        )
-        .map(|(t, (b, f))| {
-            let s = t.span.till_block(&f);
-            Rc::new(Statement::Try(b, vec![], None, Some(f), s))
-        }))
-        .or(pair(
-            left(token_nodiscard(TT::KEYWORD, "try"), tok(TT::COLON)),
-            pair(
-                pair(block, one_or_more(except_block)),
-                pair(maybe(else_block), maybe(finally_block)),
-            ),
+            pair(block, finally_block)
+                .map(|(b, f)| ((b, vec![]), (None, Some(f))))
+                .or(pair(
+                    pair(
+                        block,
+                        one_or_more(except_block).or(one_or_more(except_star_block)),
+                    ),
+                    pair(maybe(else_block), maybe(finally_block)),
+                )),
         )
         .map(|(t, ((b, ex), (e, f)))| {
             let s = t.span.till(&ex).or(&e).or(&f);
-            Rc::new(Statement::Try(b, ex, e, f, s))
-        }))
-        .or(pair(
-            left(token_nodiscard(TT::KEYWORD, "try"), tok(TT::COLON)),
-            pair(
-                pair(block, one_or_more(except_star_block)),
-                pair(maybe(else_block), maybe(finally_block)),
-            ),
-        )
-        .map(|(t, ((b, ex), (e, f)))| {
-            let s = t.span.till_block(&b).or(&e).or(&f);
             Rc::new(Statement::Try(b, ex, e, f, s))
         }))
         .parse(input)
@@ -2904,10 +2893,7 @@ fn fstring_middle(input: ParserState) -> ParseResult<Rc<Expression>> {
         })
         .or(tok(TT::FSTRING_MIDDLE).map(|f| {
             let s = f.span;
-            Rc::new(Expression::FString(
-                FString::Literal(f.lexeme, s),
-                s,
-            ))
+            Rc::new(Expression::FString(FString::Literal(f.lexeme, s), s))
         }))
         .parse(input)
 }

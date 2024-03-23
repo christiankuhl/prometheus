@@ -4,6 +4,7 @@ import subprocess
 import random
 import argparse
 import tqdm
+import subprocess
 
 NUM_TESTS = 1000
 TEST_FILE = "tests/big.py"
@@ -13,6 +14,7 @@ class Benchmark:
         self.num_tests = num_tests
         self.test_file = test_file
     def run(self, rust_only=False):
+        subprocess.run(["cargo", "build", "--release"])
         if rust_only:
             print("Running Rust parser...")
             total = 0
