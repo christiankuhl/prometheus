@@ -3,6 +3,7 @@ from time import time
 import subprocess
 import random
 import argparse
+import tqdm
 
 NUM_TESTS = 1000
 TEST_FILE = "tests/big.py"
@@ -24,21 +25,30 @@ class Benchmark:
         total_cpython = 0
         total_rust = 0
         print("Running benchmark...")
+        prog = tqdm.tqdm(total = 2 * self.num_tests)
         while python and rust:
             if random.random() < 1/2:
                 total_cpython += parse_time_cpython(self.test_file)
                 python -= 1
+                prog.update(1)
             else:
                 total_rust += parse_time_rust(self.test_file)
                 rust -= 1
+                prog.update(1)
+            if total_cpython > 0 and total_rust > 0:
+                qp = total_cpython / (self.num_tests - python)
+                qr = total_rust / (self.num_tests - rust)
+                prog.set_description(f"CPython {qp:.0f}ms / Rust {qr:.0f}ms ~ {qr/qp:.2f}x")
         remaining, function = (python, parse_time_cpython) if python else (rust, parse_time_rust)
         total = 0
         for _ in range(remaining):
             total += function(self.test_file)
+            prog.update(1)
         if python:
             total_cpython += total
         else:
             total_rust += total
+        prog.close()
         total_cpython /= self.num_tests
         total_rust /= self.num_tests
         print(f"Average time CPython: {total_cpython:.0f}ms")
