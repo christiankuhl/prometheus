@@ -82,7 +82,7 @@ impl From<Token> for Name {
     fn from(value: Token) -> Self {
         match value.typ {
             TT::NAME => Self {
-                name: Rc::from(value.lexeme),
+                name: value.lexeme,
                 span: value.span,
             },
             _ => unreachable!(),
@@ -295,7 +295,7 @@ pub enum Number {
 
 impl From<Token> for Number {
     fn from(value: Token) -> Self {
-        let mut value = value.lexeme;
+        let mut value = value.lexeme.as_ref().to_owned();
         if DECNUMBER.is_match(&value) {
             value = value.replace('_', "");
             return Self::Int(value.parse::<i64>().unwrap());

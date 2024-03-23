@@ -356,7 +356,7 @@ pub(super) fn token(
     expected_lexeme: &'static str,
 ) -> impl Fn(ParserState) -> ParseResult<()> {
     move |input| match input.tokens.first() {
-        Some(token) if token.typ == expected_type && token.lexeme.as_str() == expected_lexeme => {
+        Some(token) if token.typ == expected_type && token.lexeme.as_ref() == expected_lexeme => {
             ParseResult::Ok(((), input.consume()))
         }
         _ => ParseResult::Err,
@@ -369,7 +369,7 @@ pub(super) fn token_nodiscard(
     expected_lexeme: &'static str,
 ) -> impl Fn(ParserState) -> ParseResult<Token> {
     move |input| match input.tokens.first() {
-        Some(token) if token.typ == expected_type && token.lexeme.as_str() == expected_lexeme => {
+        Some(token) if token.typ == expected_type && token.lexeme.as_ref() == expected_lexeme => {
             ParseResult::Ok((token.clone(), input.consume()))
         }
         _ => ParseResult::Err,

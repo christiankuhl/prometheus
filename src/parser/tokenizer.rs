@@ -5,12 +5,19 @@ use regex::{Captures, Regex};
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
+use std::rc::Rc;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Token {
     pub(crate) typ: TokenType,
-    pub(crate) lexeme: String,
+    pub(crate) lexeme: Rc<str>,
     pub(crate) span: Span,
+}
+
+impl Default for Token {
+    fn default() -> Self {
+        Self { typ: TokenType::default(), lexeme: Rc::from(""), span: Span::default() }
+    }
 }
 
 impl std::fmt::Display for Token {
@@ -377,13 +384,13 @@ impl Tokenizer {
             self.tokens.push(Token {
                 typ: TokenType::DEDENT,
                 span,
-                lexeme: "".to_string(),
+                lexeme: Rc::from(""),
             });
         }
         self.tokens.push(Token {
             typ: TokenType::ENDMARKER,
             span,
-            lexeme: "".to_string(),
+            lexeme: Rc::from(""),
         });
         Ok(self.tokens)
     }
@@ -409,14 +416,14 @@ impl Tokenizer {
                         if m.end() > current_indent {
                             self.current.typ = TokenType::INDENT;
                             self.indent.push(m.end());
-                            self.current.lexeme = m.as_str().to_string();
+                            self.current.lexeme = Rc::from(m.as_str());
                             self.end = m.end();
                             self.current.span = Span::new(lineno, self.start, lineno, self.end);
                             self.push();
                         } else {
                             while current_indent > m.end() {
                                 self.current.typ = TokenType::DEDENT;
-                                self.current.lexeme = "".to_string();
+                                self.current.lexeme = Rc::from("");
                                 self.end = m.end();
                                 self.current.span = Span::new(lineno, self.start, lineno, self.end);
                                 self.push();
@@ -471,7 +478,7 @@ impl Tokenizer {
                 for (lexeme, tok_type) in SIMPLE_TOKENS {
                     if line[self.start..].starts_with(lexeme) {
                         self.current.typ = tok_type;
-                        self.current.lexeme = lexeme.to_string();
+                        self.current.lexeme = Rc::from(lexeme);
                         self.end = self.start + lexeme.len();
                         self.current.span = Span::new(lineno, self.start, lineno, self.end);
                         self.push();
@@ -511,7 +518,7 @@ impl Tokenizer {
                             line: lineno,
                             column: self.end,
                         });
-                        self.current.lexeme = self.current_string.clone();
+                        self.current.lexeme = Rc::from(self.current_string.clone());
                         self.push();
                         break;
                     }
@@ -523,7 +530,7 @@ impl Tokenizer {
         if self.tokens_added > 0 && !self.in_string && self.paren_lvl == 0 {
             let mut token = Token::default();
             token.span = Span::new(lineno, self.start, lineno, self.end);
-            token.lexeme = "".to_string();
+            token.lexeme = Rc::from("");
             token.typ = TokenType::NEWLINE;
             self.tokens.push(token);
         }
@@ -553,7 +560,7 @@ impl Tokenizer {
     ) -> bool {
         if let Some(m) = regex.find(&line[self.start..]) {
             self.current.typ = token_type;
-            self.current.lexeme = m.as_str().to_string();
+            self.current.lexeme = Rc::from(m.as_str());
             self.end = self.start + m.end();
             self.current.span = Span::new(lineno, self.start, lineno, self.end);
             self.push();
@@ -580,7 +587,7 @@ pub fn tokenize_string<I>(input: I) -> Result<Vec<Token>, String> where I: AsRef
     let input_string = input.as_ref().to_owned();
     let lines = input_string.lines();
     let mut tokenizer = Tokenizer::new().expect("Could not build tokenizer.");
-    tokenizer.tokenize(lines.into_iter());
+    tokenizer.tokenize(lines);
     tokenizer.finalize()
 }
 

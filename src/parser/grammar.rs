@@ -311,7 +311,7 @@ fn assignment(input: ParserState) -> ParseResult<Rc<Statement>> {
             l.concat(),
             None,
             Some(r),
-            t.map(|s| Rc::new(Expression::TypeComment(Rc::from(s.lexeme), s.span))),
+            t.map(|s| Rc::new(Expression::TypeComment(s.lexeme, s.span))),
             s,
         ))
     }))
@@ -995,7 +995,7 @@ fn param_with_default(input: ParserState) -> ParseResult<Parameter> {
     )
     .map(|((mut p, d), t)| {
         p.default = Some(d);
-        p.type_comment = t.map(|s| Rc::from(s.lexeme));
+        p.type_comment = t.map(|s| s.lexeme);
         p
     })
     .parse(input)
@@ -1012,7 +1012,7 @@ fn param_maybe_default(input: ParserState) -> ParseResult<Parameter> {
     )
     .map(|((mut p, d), t)| {
         p.default = d;
-        p.type_comment = t.map(|s| Rc::from(s.lexeme));
+        p.type_comment = t.map(|s| s.lexeme);
         p
     })
     .parse(input)
@@ -1146,7 +1146,7 @@ fn for_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
                 expr,
                 blck,
                 els,
-                tc.map(|s| Rc::new(Expression::TypeComment(Rc::from(s.lexeme), s.span))),
+                tc.map(|s| Rc::new(Expression::TypeComment(s.lexeme, s.span))),
                 a.is_some(),
                 span,
             ))
@@ -1191,7 +1191,7 @@ fn with_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
             Rc::new(Statement::With(
                 w,
                 b,
-                t.map(|s| Rc::new(Expression::TypeComment(Rc::from(s.lexeme), s.span))),
+                t.map(|s| Rc::new(Expression::TypeComment(s.lexeme, s.span))),
                 a.is_some(),
                 s,
             ))
@@ -1493,7 +1493,7 @@ fn pattern_capture_target(input: ParserState) -> ParseResult<Name> {
 //     | "_"
 fn wildcard_pattern(input: ParserState) -> ParseResult<Pattern> {
     tok(TT::NAME)
-        .pred(|t| t.lexeme.as_str() == "_")
+        .pred(|t| t.lexeme.as_ref() == "_")
         .map(|_| Pattern::Wildcard)
         .parse(input)
 }
@@ -2905,7 +2905,7 @@ fn fstring_middle(input: ParserState) -> ParseResult<Rc<Expression>> {
         .or(tok(TT::FSTRING_MIDDLE).map(|f| {
             let s = f.span;
             Rc::new(Expression::FString(
-                FString::Literal(Rc::from(f.lexeme), s),
+                FString::Literal(f.lexeme, s),
                 s,
             ))
         }))
@@ -2960,7 +2960,7 @@ fn fstring_format_spec(input: ParserState) -> ParseResult<Rc<Expression>> {
     tok(TT::FSTRING_MIDDLE)
         .map(|t| {
             Rc::new(Expression::Strings(
-                vec![PyString::Literal(Rc::from(t.lexeme), t.span)],
+                vec![PyString::Literal(t.lexeme, t.span)],
                 t.span,
             ))
         })
@@ -2997,7 +2997,7 @@ fn string(input: ParserState) -> ParseResult<Token> {
 // strings: (fstring|string)+
 fn strings(input: ParserState) -> ParseResult<Rc<Expression>> {
     one_or_more(
-        string.map(|t| PyString::Literal(Rc::from(t.lexeme), t.span)), // .or(fstring), FIXME
+        string.map(|t| PyString::Literal(t.lexeme, t.span)), // .or(fstring), FIXME
     )
     .map(|t| {
         let s = t.span();
@@ -3638,9 +3638,9 @@ fn func_type_comment(input: ParserState) -> ParseResult<Rc<Expression>> {
             lookahead(pair(tok(TT::NEWLINE), tok(TT::INDENT))),
         ),
     )
-    .map(|t| Rc::new(Expression::TypeComment(Rc::from(t.lexeme), t.span)))
+    .map(|t| Rc::new(Expression::TypeComment(t.lexeme, t.span)))
     .or(invalid_double_type_comments)
-    .or(tok(TT::TYPE_COMMENT).map(|t| Rc::new(Expression::TypeComment(Rc::from(t.lexeme), t.span))))
+    .or(tok(TT::TYPE_COMMENT).map(|t| Rc::new(Expression::TypeComment(t.lexeme, t.span))))
     .parse(input)
 }
 
