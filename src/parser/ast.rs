@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 pub type Block = Vec<Rc<Statement>>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Statement {
     FunctionDeclaration(FunctionDeclaration, Vec<Decorator>, Span),
     Continue(Span),
@@ -170,7 +170,7 @@ impl From<Name> for Parameter {
 #[derive(Debug, Clone)]
 pub struct Decorator(pub(super) Rc<Expression>);
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Pattern {
     Wildcard,
     Capture(Option<Rc<Pattern>>, Name),
@@ -187,7 +187,7 @@ pub enum Pattern {
     Invalid(Span),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Expression {
     ListUnwrap(Rc<Expression>, Span),
     BinaryOperation(Operator, Rc<Expression>, Rc<Expression>, Span),
@@ -241,7 +241,7 @@ pub enum Expression {
     Invalid(Span),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) enum IncompleteExpression {
     Subscript(Name, Box<IncompleteExpression>),
     Call(Arguments, Box<IncompleteExpression>),
@@ -258,7 +258,7 @@ impl IncompleteExpression {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct TypeBound {
     pub(super) name: Name,
     pub(super) type_bound: Option<Rc<Expression>>,
@@ -266,13 +266,13 @@ pub struct TypeBound {
     pub(super) double_starred: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum PyString {
     Literal(Rc<str>, Span),
     FString(Vec<FString>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum FString {
     Literal(Rc<str>, Span),
     Interpolated(FStringReplacement),
@@ -286,7 +286,7 @@ pub struct FStringReplacement {
     pub(super) format_specs: Vec<Rc<Expression>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Number {
     Int(i64),
     Float(f64),
@@ -326,9 +326,6 @@ impl From<Token> for Number {
 }
 
 #[derive(Debug, Clone)]
-pub struct Argument;
-
-#[derive(Debug, Clone)]
 pub struct Arguments {
     pub(super) positional: Vec<Rc<Expression>>,
     pub(super) keyword: Vec<Rc<Expression>>,
@@ -343,13 +340,7 @@ impl Arguments {
     }
 }
 
-impl From<Expression> for Argument {
-    fn from(value: Expression) -> Self {
-        todo!()
-    }
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Slice {
     Simple(Rc<Expression>),
     Delimited(
@@ -462,7 +453,7 @@ pub struct ImportItem {
     pub(super) alias: Option<Name>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Selector {
     Name(Name),
     Slice(Vec<Slice>),

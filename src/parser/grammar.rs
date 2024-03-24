@@ -493,13 +493,13 @@ fn import_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
 fn import_name(input: ParserState) -> ParseResult<Rc<Statement>> {
     right(token(TT::KEYWORD, "import"), dotted_as_names)
         .map(|ms| {
-            let imports: Vec<Import> = ms
-                .iter()
-                .map(|m| Import {
-                    module: m.clone(),
+            let mut imports = vec![];
+            for module in ms {
+                imports.push(Import {
+                    module,
                     items: vec![],
-                })
-                .collect();
+                });
+            }
             let span = imports.span();
             Rc::new(Statement::Import(imports, span))
         })
