@@ -233,7 +233,6 @@ pub enum Expression {
     Attribute(Vec<Name>, Span),
     Lambda(Vec<Parameter>, Rc<Expression>, Span),
     TypeComment(Rc<str>, Span),
-    PrimaryGenexp(Rc<Expression>, Rc<Expression>, Span), // ???
     FString(FString, Span),
     ImportItems(Vec<ImportItem>, Span),
     Parameters(Vec<Parameter>, Span),
@@ -247,7 +246,7 @@ pub(crate) enum IncompleteExpression {
     Call(Arguments, Box<IncompleteExpression>),
     Slice(Vec<Slice>, Box<IncompleteExpression>),
     BinaryOperation(Operator, Rc<Expression>, Box<IncompleteExpression>),
-    PrimaryGenexp(Rc<Expression>, Box<IncompleteExpression>), // ???
+    Generator(Rc<Expression>, Box<IncompleteExpression>),
     Invalid,
     Empty,
 }

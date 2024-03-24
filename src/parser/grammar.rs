@@ -2493,10 +2493,10 @@ fn primary(input: ParserState) -> ParseResult<Rc<Expression>> {
                         let s = current_expr.span().till(&name);
                         (Rc::new(Expression::Subscript(current_expr, name, s)), tail)
                     }
-                    IncompleteExpression::PrimaryGenexp(genexp, tail) => {
+                    IncompleteExpression::Generator(genexp, tail) => {
                         let s = current_expr.span().till(&genexp);
                         (
-                            Rc::new(Expression::PrimaryGenexp(current_expr, genexp, s)),
+                            Rc::new(Expression::Call(current_expr, Arguments { positional: vec![genexp], keyword: vec![] }, s)),
                             tail,
                         )
                     }
@@ -2539,7 +2539,7 @@ fn primary_tail(input: ParserState) -> ParseResult<IncompleteExpression> {
         )
         .map(|(n, tail)| IncompleteExpression::Slice(n, Box::new(tail))))
         .or(pair(genexp, primary_tail)
-            .map(|(g, tail)| IncompleteExpression::PrimaryGenexp(g, Box::new(tail))))
+            .map(|(g, tail)| IncompleteExpression::Generator(g, Box::new(tail))))
         .or(epsilon.map(|_| IncompleteExpression::Empty))
         .parse(input)
 }
@@ -3481,10 +3481,10 @@ fn t_primary(input: ParserState) -> ParseResult<Rc<Expression>> {
                         let s = current_expr.span().till(&name);
                         (Rc::new(Expression::Subscript(current_expr, name, s)), tail)
                     }
-                    IncompleteExpression::PrimaryGenexp(genexp, tail) => {
+                    IncompleteExpression::Generator(genexp, tail) => {
                         let s = current_expr.span().till(&genexp);
                         (
-                            Rc::new(Expression::PrimaryGenexp(current_expr, genexp, s)),
+                            Rc::new(Expression::Call(current_expr, Arguments { positional: vec![genexp], keyword: vec![] }, s)),
                             tail,
                         )
                     }
@@ -3521,7 +3521,7 @@ fn t_primary_tail(input: ParserState) -> ParseResult<IncompleteExpression> {
     )
     .map(|(s, tail)| IncompleteExpression::Slice(s, Box::new(tail))))
     .or(pair(left(genexp, lookahead(t_lookahead)), t_primary_tail)
-        .map(|(g, tail)| IncompleteExpression::PrimaryGenexp(g, Box::new(tail))))
+        .map(|(g, tail)| IncompleteExpression::Generator(g, Box::new(tail))))
     .or(pair(
         right(
             tok(TT::LPAR),

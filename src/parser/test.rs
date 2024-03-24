@@ -79,6 +79,14 @@ fn test_async_with_statement() {
 }
 
 #[test]
+fn test_generator_expr_argument() {
+    parse_tree_matches("print(foo for foo in foobar)", "Expressions([Call(Name(\"print\"");
+    parse_tree_matches("print(foo for foo in foobar)", "Arguments { positional: [Generator(Name(\"foo\"");
+    parse_tree_matches("foo(x for x in range(10))", "Call(Name(\"foo\"");
+    parse_tree_matches("foo(x for x in range(10))", "Generator(Name(\"x\"");
+}
+
+#[test]
 fn test_async_for_statement() {
     parse_tree_matches("async def f():\n async for i in (): pass", "is_async: true");
     parse_tree_matches(
@@ -157,7 +165,6 @@ fn test_expressions() {
     );
     parse_tree_matches("lambda x, /, *y, **z: 0", "positional_only: true");
     parse_tree_matches("(x for x in range(10))", "Generator");
-    parse_tree_matches("foo(x for x in range(10))", "Generator");
     parse_tree_matches("...", "Ellipsis");
     parse_tree_matches("a[...]", "Slice");
 }

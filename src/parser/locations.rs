@@ -278,7 +278,6 @@ impl Locatable for Expression {
             Self::SetComprehension(_, _, s) => s,
             Self::Lambda(_, _, s) => s,
             Self::Tuple(_, s) => s,
-            Self::PrimaryGenexp(_, _, s) => s,
             Self::KeywordArgument(_, _, s) => s,
             Self::ListUnwrap(_, s) => s,
             Self::Name(_, s) => s,

@@ -135,7 +135,6 @@ fn evaluate_expr(expression: &Expression) -> impl PyObject {
         Expression::Attribute(attr, _) => todo!(),
         Expression::Lambda(params, expr, _) => todo!(),
         Expression::TypeComment(type_comment, _) => todo!(),
-        Expression::PrimaryGenexp(_, _, _) => todo!(),
         Expression::FString(_, _) => todo!(),
         Expression::ImportItems(_, _) => unreachable!(),
         Expression::Parameters(_, _) => unreachable!(),
