@@ -898,7 +898,7 @@ fn star_etc(input: ParserState) -> ParseResult<Vec<Parameter>> {
             v.starred = true;
             let mut v = vec![v];
             u.iter_mut().for_each(|a| a.keyword_only = true);
-            v.extend(u.clone());
+            v.append(&mut u);
             if let Some(Expression::Parameters(p, _)) = w.as_deref() {
                 v.extend(p.clone())
             };
@@ -912,7 +912,7 @@ fn star_etc(input: ParserState) -> ParseResult<Vec<Parameter>> {
             v.starred = true;
             let mut v = vec![v];
             u.iter_mut().for_each(|a| a.keyword_only = true);
-            v.extend(u.clone());
+            v.append(&mut u);
             if let Some(Expression::Parameters(p, _)) = w.as_deref() {
                 v.extend(p.clone())
             };
@@ -1371,7 +1371,7 @@ fn guard(input: ParserState) -> ParseResult<Rc<Expression>> {
 // patterns:
 //     | open_sequence_pattern
 //     | pattern
-fn patterns(input: ParserState) -> ParseResult<Vec<Pattern>> {
+fn patterns(input: ParserState) -> ParseResult<Vec<Rc<Pattern>>> {
     open_sequence_pattern
         .or(pattern.map(|p| vec![p]))
         .parse(input)
@@ -1380,27 +1380,27 @@ fn patterns(input: ParserState) -> ParseResult<Vec<Pattern>> {
 // pattern:
 //     | as_pattern
 //     | or_pattern
-fn pattern(input: ParserState) -> ParseResult<Pattern> {
+fn pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     as_pattern.or(or_pattern).parse(input)
 }
 
 // as_pattern:
 //     | or_pattern 'as' pattern_capture_target
-fn as_pattern(input: ParserState) -> ParseResult<Pattern> {
+fn as_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     pair(
         left(or_pattern, token(TT::KEYWORD, "as")),
         pattern_capture_target,
     )
-    .map(|(p, t)| Pattern::Capture(Some(Rc::new(p)), t))
+    .map(|(p, t)| Rc::new(Pattern::Capture(Some(p), t)))
     .or(on_error_pass(invalid_as_pattern))
     .parse(input)
 }
 
 // or_pattern:
 //     | '|'.closed_pattern+
-fn or_pattern(input: ParserState) -> ParseResult<Pattern> {
+fn or_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     sep_by(closed_pattern, TT::VBAR)
-        .map(Pattern::Disjunction)
+        .map(|p| Rc::new(Pattern::Disjunction(p)))
         .parse(input)
 }
 
@@ -1413,8 +1413,11 @@ fn or_pattern(input: ParserState) -> ParseResult<Pattern> {
 //     | sequence_pattern
 //     | mapping_pattern
 //     | class_pattern
-fn closed_pattern(input: ParserState) -> ParseResult<Pattern> {
-    literal_pattern
+fn closed_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
+    if let Some(result) = try_remember(input, closed_pattern) {
+        return result;
+    }
+    let result = literal_pattern
         .or(capture_pattern)
         .or(wildcard_pattern)
         .or(value_pattern)
@@ -1422,7 +1425,9 @@ fn closed_pattern(input: ParserState) -> ParseResult<Pattern> {
         .or(sequence_pattern)
         .or(mapping_pattern)
         .or(class_pattern)
-        .parse(input)
+        .parse(input);
+    save_result(input, closed_pattern, &result);
+    result
 }
 
 // # Literal patterns are used for equality and identity constraints
@@ -1433,13 +1438,13 @@ fn closed_pattern(input: ParserState) -> ParseResult<Pattern> {
 //     | 'None'
 //     | 'True'
 //     | 'False'
-fn literal_pattern(input: ParserState) -> ParseResult<Pattern> {
+fn literal_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     number
         .or(strings)
         .or(token_nodiscard(TT::KEYWORD, "None").map(|t| Rc::new(Expression::None(t.span))))
         .or(token_nodiscard(TT::KEYWORD, "True").map(|t| Rc::new(Expression::True(t.span))))
         .or(token_nodiscard(TT::KEYWORD, "False").map(|t| Rc::new(Expression::False(t.span))))
-        .map(Pattern::Literal)
+        .map(|p| Rc::new(Pattern::Literal(p)))
         .parse(input)
 }
 
@@ -1455,16 +1460,16 @@ fn literal_expr(input: ParserState) -> ParseResult<Expression> {
     literal_pattern
         .map(|p| {
             let s = p.span();
-            Expression::Pattern(Rc::new(p), s)
+            Expression::Pattern(p, s)
         })
         .parse(input)
 }
 
 // capture_pattern:
 //     | pattern_capture_target
-fn capture_pattern(input: ParserState) -> ParseResult<Pattern> {
+fn capture_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     pattern_capture_target
-        .map(|n| Pattern::Capture(None, n))
+        .map(|n| Rc::new(Pattern::Capture(None, n)))
         .parse(input)
 }
 
@@ -1480,19 +1485,19 @@ fn pattern_capture_target(input: ParserState) -> ParseResult<Name> {
 
 // wildcard_pattern:
 //     | "_"
-fn wildcard_pattern(input: ParserState) -> ParseResult<Pattern> {
+fn wildcard_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     tok(TT::NAME)
         .pred(|t| t.lexeme.as_ref() == "_")
-        .map(|_| Pattern::Wildcard)
+        .map(|_| Rc::new(Pattern::Wildcard))
         .parse(input)
 }
 
 // value_pattern:
 //     | attr !('.' | '(' | '=')
-fn value_pattern(input: ParserState) -> ParseResult<Pattern> {
+fn value_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     left(attr, not(tok(TT::DOT).or(tok(TT::LPAR)).or(tok(TT::EQUAL))))
         .map(|a| match a {
-            Expression::Attribute(ns, _) => Pattern::Value(ns),
+            Expression::Attribute(ns, _) => Rc::new(Pattern::Value(ns)),
             _ => unreachable!(),
         })
         .parse(input)
@@ -1521,16 +1526,16 @@ fn name_or_attr(input: ParserState) -> ParseResult<Expression> {
 
 // group_pattern:
 //     | '(' pattern ')'
-fn group_pattern(input: ParserState) -> ParseResult<Pattern> {
+fn group_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     right(tok(TT::LPAR), left(pattern, tok(TT::RPAR)))
-        .map(|p| Pattern::Group(Rc::new(p)))
+        .map(|p| Rc::new(Pattern::Group(p)))
         .parse(input)
 }
 
 // sequence_pattern:
 //     | '[' maybe_sequence_pattern? ']'
 //     | '(' open_sequence_pattern? ')'
-fn sequence_pattern(input: ParserState) -> ParseResult<Pattern> {
+fn sequence_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     right(
         tok(TT::LSQB),
         left(maybe(maybe_sequence_pattern), tok(TT::RSQB)),
@@ -1539,19 +1544,19 @@ fn sequence_pattern(input: ParserState) -> ParseResult<Pattern> {
         tok(TT::LPAR),
         left(maybe(open_sequence_pattern), tok(TT::RPAR)),
     ))
-    .map(|s| Pattern::Sequence(s.unwrap_or_default()))
+    .map(|s| Rc::new(Pattern::Sequence(s.unwrap_or_default())))
     .parse(input)
 }
 
 // open_sequence_pattern:
 //     | maybe_star_pattern ',' maybe_sequence_pattern?
-fn open_sequence_pattern(input: ParserState) -> ParseResult<Vec<Pattern>> {
+fn open_sequence_pattern(input: ParserState) -> ParseResult<Vec<Rc<Pattern>>> {
     pair(
         left(maybe_star_pattern, tok(TT::COMMA)),
         maybe(maybe_sequence_pattern),
     )
     .map(|(u, v)| {
-        let mut seq: Vec<Pattern> = Vec::new();
+        let mut seq: Vec<Rc<Pattern>> = Vec::new();
         seq.push(u);
         seq.extend(v.unwrap_or_default());
         seq
@@ -1561,29 +1566,34 @@ fn open_sequence_pattern(input: ParserState) -> ParseResult<Vec<Pattern>> {
 
 // maybe_sequence_pattern:
 //     | ','.maybe_star_pattern+ ','?
-fn maybe_sequence_pattern(input: ParserState) -> ParseResult<Vec<Pattern>> {
+fn maybe_sequence_pattern(input: ParserState) -> ParseResult<Vec<Rc<Pattern>>> {
     left(sep_by(maybe_star_pattern, TT::COMMA), maybe(tok(TT::COMMA))).parse(input)
 }
 
 // maybe_star_pattern:
 //     | star_pattern
 //     | pattern
-fn maybe_star_pattern(input: ParserState) -> ParseResult<Pattern> {
+fn maybe_star_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     star_pattern.or(pattern).parse(input)
 }
 
 // star_pattern:
 //     | '*' pattern_capture_target
 //     | '*' wildcard_pattern
-fn star_pattern(input: ParserState) -> ParseResult<Pattern> {
-    right(
+fn star_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
+    if let Some(result) = try_remember(input, star_pattern) {
+        return result;
+    }
+    let result = right(
         tok(TT::STAR),
         pattern_capture_target
-            .map(|n| Pattern::Capture(None, n))
+            .map(|n| Rc::new(Pattern::Capture(None, n)))
             .or(wildcard_pattern),
     )
-    .map(|p| Pattern::Star(Rc::new(p)))
-    .parse(input)
+    .map(|p| Rc::new(Pattern::Star(p)))
+    .parse(input);
+    save_result(input, star_pattern, &result);
+    result
 }
 
 // mapping_pattern:
@@ -1591,7 +1601,7 @@ fn star_pattern(input: ParserState) -> ParseResult<Pattern> {
 //     | '{' double_star_pattern ','? '}'
 //     | '{' items_pattern ',' double_star_pattern ','? '}'
 //     | '{' items_pattern ','? '}'
-fn mapping_pattern(input: ParserState) -> ParseResult<Pattern> {
+fn mapping_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     right(
         tok(TT::LBRACE),
         tok(TT::RBRACE)
@@ -1614,29 +1624,29 @@ fn mapping_pattern(input: ParserState) -> ParseResult<Pattern> {
                 pair(maybe(tok(TT::COMMA)), tok(TT::RBRACE)),
             )),
     )
-    .map(Pattern::Mapping)
+    .map(|p| Rc::new(Pattern::Mapping(p)))
     .parse(input)
 }
 
 // items_pattern:
 //     | ','.key_value_pattern+
-fn items_pattern(input: ParserState) -> ParseResult<Vec<Pattern>> {
+fn items_pattern(input: ParserState) -> ParseResult<Vec<Rc<Pattern>>> {
     sep_by(key_value_pattern, TT::COMMA).parse(input)
 }
 
 // key_value_pattern:
 //     | (literal_expr | attr) ':' pattern
-fn key_value_pattern(input: ParserState) -> ParseResult<Pattern> {
+fn key_value_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     pair(left(literal_expr.or(attr), tok(TT::COLON)), pattern)
-        .map(|(e, p)| Pattern::KeyValue(Rc::new(e), Rc::new(p)))
+        .map(|(e, p)| Rc::new(Pattern::KeyValue(Rc::new(e), p)))
         .parse(input)
 }
 
 // double_star_pattern:
 //     | '**' pattern_capture_target
-fn double_star_pattern(input: ParserState) -> ParseResult<Pattern> {
+fn double_star_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     right(tok(TT::DOUBLESTAR), pattern_capture_target)
-        .map(Pattern::DoubleStar)
+        .map(|p| Rc::new(Pattern::DoubleStar(p)))
         .parse(input)
 }
 
@@ -1645,7 +1655,7 @@ fn double_star_pattern(input: ParserState) -> ParseResult<Pattern> {
 //     | name_or_attr '(' positional_patterns ','? ')'
 //     | name_or_attr '(' keyword_patterns ','? ')'
 //     | name_or_attr '(' positional_patterns ',' keyword_patterns ','? ')'
-fn class_pattern(input: ParserState) -> ParseResult<Pattern> {
+fn class_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     pair(
         name_or_attr,
         pair(tok(TT::LPAR), tok(TT::RPAR))
@@ -1673,30 +1683,30 @@ fn class_pattern(input: ParserState) -> ParseResult<Pattern> {
                 pos
             })),
     )
-    .map(|(n, ps)| Pattern::Class(Rc::new(n), ps))
+    .map(|(n, ps)| Rc::new(Pattern::Class(Rc::new(n), ps)))
     .or(on_error_pass(invalid_class_pattern))
     .parse(input)
 }
 
 // positional_patterns:
 //     | ','.pattern+
-fn positional_patterns(input: ParserState) -> ParseResult<Vec<Pattern>> {
+fn positional_patterns(input: ParserState) -> ParseResult<Vec<Rc<Pattern>>> {
     sep_by(pattern, TT::COMMA).parse(input)
 }
 
 // keyword_patterns:
 //     | ','.keyword_pattern+
-fn keyword_patterns(input: ParserState) -> ParseResult<Vec<Pattern>> {
+fn keyword_patterns(input: ParserState) -> ParseResult<Vec<Rc<Pattern>>> {
     sep_by(keyword_pattern, TT::COMMA).parse(input)
 }
 
 // keyword_pattern:
 //     | NAME '=' pattern
-fn keyword_pattern(input: ParserState) -> ParseResult<Pattern> {
+fn keyword_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     pair(left(name, tok(TT::EQUAL)), pattern)
         .map(|(n, p)| {
             let s = n.span.till(&p);
-            Pattern::KeyValue(Rc::new(Expression::Name(n, s)), Rc::new(p))
+            Rc::new(Pattern::KeyValue(Rc::new(Expression::Name(n, s)), p))
         })
         .parse(input)
 }
@@ -1739,7 +1749,10 @@ fn type_param_seq(input: ParserState) -> ParseResult<Vec<Rc<Expression>>> {
 //     | '**' NAME ':' expression
 //     | '**' NAME
 fn type_param(input: ParserState) -> ParseResult<Rc<Expression>> {
-    pair(name, maybe(type_param_bound))
+    if let Some(result) = try_remember(input, type_param) {
+        return result;
+    }
+    let result = pair(name, maybe(type_param_bound))
         .map(|(name, type_bound)| {
             let span = name.span.or(&type_bound);
             Rc::new(Expression::TypeBound(
@@ -1808,7 +1821,9 @@ fn type_param(input: ParserState) -> ParseResult<Rc<Expression>> {
                 span,
             ))
         }))
-        .parse(input)
+        .parse(input);
+    save_result(input, type_param, &result);
+    return result;
 }
 
 // type_param_bound: ':' expression
@@ -2496,7 +2511,14 @@ fn primary(input: ParserState) -> ParseResult<Rc<Expression>> {
                     IncompleteExpression::Generator(genexp, tail) => {
                         let s = current_expr.span().till(&genexp);
                         (
-                            Rc::new(Expression::Call(current_expr, Arguments { positional: vec![genexp], keyword: vec![] }, s)),
+                            Rc::new(Expression::Call(
+                                current_expr,
+                                Arguments {
+                                    positional: vec![genexp],
+                                    keyword: vec![],
+                                },
+                                s,
+                            )),
                             tail,
                         )
                     }
@@ -2982,14 +3004,19 @@ fn string(input: ParserState) -> ParseResult<Token> {
 
 // strings: (fstring|string)+
 fn strings(input: ParserState) -> ParseResult<Rc<Expression>> {
-    one_or_more(
+    if let Some(result) = try_remember(input, strings) {
+        return result;
+    }
+    let result = one_or_more(
         string.map(|t| PyString::Literal(t.lexeme, t.span)), // .or(fstring), FIXME
     )
     .map(|t| {
         let s = t.span();
         Rc::new(Expression::Strings(t, s))
     })
-    .parse(input)
+    .parse(input);
+    save_result(input, strings, &result);
+    result
 }
 
 // list:
@@ -3207,7 +3234,10 @@ fn dictcomp(input: ParserState) -> ParseResult<Rc<Expression>> {
 // arguments:
 //     | args [','] &')'
 fn arguments(input: ParserState) -> ParseResult<Rc<Expression>> {
-    left(
+    if let Some(result) = try_remember(input, arguments) {
+        return result;
+    }
+    let result = left(
         args.map(|a| {
             let s = a.span();
             Rc::new(Expression::Arguments(a, s))
@@ -3215,7 +3245,9 @@ fn arguments(input: ParserState) -> ParseResult<Rc<Expression>> {
         pair(maybe(tok(TT::COMMA)), lookahead(tok(TT::RPAR))),
     )
     .or(on_error_pass(invalid_arguments))
-    .parse(input)
+    .parse(input);
+    save_result(input, arguments, &result);
+    result
 }
 
 // args:
@@ -3484,7 +3516,14 @@ fn t_primary(input: ParserState) -> ParseResult<Rc<Expression>> {
                     IncompleteExpression::Generator(genexp, tail) => {
                         let s = current_expr.span().till(&genexp);
                         (
-                            Rc::new(Expression::Call(current_expr, Arguments { positional: vec![genexp], keyword: vec![] }, s)),
+                            Rc::new(Expression::Call(
+                                current_expr,
+                                Arguments {
+                                    positional: vec![genexp],
+                                    keyword: vec![],
+                                },
+                                s,
+                            )),
                             tail,
                         )
                     }
@@ -5029,7 +5068,7 @@ fn invalid_case_block(input: ParserState) -> ParseResult<Rc<Expression>> {
 // invalid_as_pattern:
 //     | or_pattern 'as' a="_" { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "cannot use '_' as a target") }
 //     | or_pattern 'as' !NAME a=expression { RAISE_SYNTAX_ERROR_KNOWN_LOCATION(a, "invalid pattern target") }
-fn invalid_as_pattern(input: ParserState) -> ParseResult<Pattern> {
+fn invalid_as_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     right(
         pair(or_pattern, token(TT::KEYWORD, "as")),
         name.pred(|n| *n.name == *"_"),
@@ -5037,7 +5076,7 @@ fn invalid_as_pattern(input: ParserState) -> ParseResult<Pattern> {
     .map(move |a| {
         let error = Error::starting_from(a.span(), "cannot use '_' as a target");
         input.report_error(error);
-        Pattern::Invalid(a.span())
+        Rc::new(Pattern::Invalid(a.span()))
     })
     .or(right(
         pair(or_pattern, token(TT::KEYWORD, "as")),
@@ -5046,7 +5085,7 @@ fn invalid_as_pattern(input: ParserState) -> ParseResult<Pattern> {
     .map(move |a| {
         let error = Error::starting_from(a.span(), "invalid pattern target");
         input.report_error(error);
-        Pattern::Invalid(a.span())
+        Rc::new(Pattern::Invalid(a.span()))
     }))
     .parse(input)
 }
@@ -5056,7 +5095,7 @@ fn invalid_as_pattern(input: ParserState) -> ParseResult<Pattern> {
 //         PyPegen_first_item(a, pattern_ty),
 //         PyPegen_last_item(a, pattern_ty),
 //         "positional patterns follow keyword patterns") }
-fn invalid_class_pattern(input: ParserState) -> ParseResult<Pattern> {
+fn invalid_class_pattern(input: ParserState) -> ParseResult<Rc<Pattern>> {
     right(
         pair(name_or_attr, tok(TT::LPAR)),
         invalid_class_argument_pattern,
@@ -5064,7 +5103,7 @@ fn invalid_class_pattern(input: ParserState) -> ParseResult<Pattern> {
     .map(move |a| {
         let error = Error::with_underline(a.span(), "positional patterns follow keyword patterns");
         input.report_error(error);
-        Pattern::Invalid(a.span())
+        Rc::new(Pattern::Invalid(a.span()))
     })
     .parse(input)
 }

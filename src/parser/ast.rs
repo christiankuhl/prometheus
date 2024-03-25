@@ -177,12 +177,12 @@ pub enum Pattern {
     Literal(Rc<Expression>),
     Value(Vec<Name>),
     Group(Rc<Pattern>),
-    Sequence(Vec<Pattern>),
+    Sequence(Vec<Rc<Pattern>>),
     Star(Rc<Pattern>),
     DoubleStar(Name),
-    Mapping(Vec<Pattern>),
-    Class(Rc<Expression>, Vec<Pattern>),
-    Disjunction(Vec<Pattern>),
+    Mapping(Vec<Rc<Pattern>>),
+    Class(Rc<Expression>, Vec<Rc<Pattern>>),
+    Disjunction(Vec<Rc<Pattern>>),
     KeyValue(Rc<Expression>, Rc<Pattern>),
     Invalid(Span),
 }
@@ -227,7 +227,7 @@ pub enum Expression {
     True(Span),
     False(Span),
     None(Span),
-    Case(Vec<Pattern>, Option<Rc<Expression>>, Block, Span),
+    Case(Vec<Rc<Pattern>>, Option<Rc<Expression>>, Block, Span),
     TypeBound(TypeBound, Span),
     Pattern(Rc<Pattern>, Span),
     Attribute(Vec<Name>, Span),
@@ -355,7 +355,7 @@ impl From<Rc<Expression>> for Slice {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Operator {
     Or,
     And,

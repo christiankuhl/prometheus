@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use super::{Expression, ParseResult, ParserState, Statement};
+use super::{Expression, ParseResult, ParserState, Statement, Pattern};
 
 pub(super) fn try_remember<R>(
     input: ParserState,
@@ -43,6 +43,7 @@ pub(super) struct ParserCache<'a> {
     expressions: HashMap<(usize, usize), ParseResult<'a, Rc<Expression>>>,
     statements: HashMap<(usize, usize), ParseResult<'a, Rc<Statement>>>,
     blocks: HashMap<(usize, usize), ParseResult<'a, Vec<Rc<Statement>>>>,
+    patterns: HashMap<(usize, usize), ParseResult<'a, Rc<Pattern>>>,
 }
 
 impl<'a> ParserCache<'a> {
@@ -51,6 +52,7 @@ impl<'a> ParserCache<'a> {
             expressions: HashMap::new(),
             statements: HashMap::new(),
             blocks: HashMap::new(),
+            patterns: HashMap::new(),
         }
     }
 }
@@ -100,5 +102,21 @@ impl Cacheable for Vec<Rc<Statement>> {
         value: &ParseResult<'a, Self>,
     ) {
         cache.borrow_mut().blocks.insert(key, value.clone());
+    }
+}
+
+impl Cacheable for Rc<Pattern> {
+    fn try_load<'a>(
+        cache: &'a RefCell<ParserCache<'a>>,
+        key: (usize, usize),
+    ) -> Option<ParseResult<'a, Self>> {
+        cache.borrow().patterns.get(&key).cloned()
+    }
+    fn store<'a>(
+        cache: &'a RefCell<ParserCache<'a>>,
+        key: (usize, usize),
+        value: &ParseResult<'a, Self>,
+    ) {
+        cache.borrow_mut().patterns.insert(key, value.clone());
     }
 }

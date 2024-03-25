@@ -1,4 +1,4 @@
-use super::{error::Error, parse, tokenize_string, Block};
+use super::{error::Error, parse, tokenizer::tokenize_string, Block};
 
 fn parse_string(input: &str) -> Result<(Block, Vec<Error>), String> {
     let tokens = tokenize_string(input)?;
