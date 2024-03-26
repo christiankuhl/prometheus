@@ -230,7 +230,7 @@ impl Locatable for Statement {
             Self::Raise(_, _, s) => s,
             Self::Match(_, _, s) => s,
             Self::Type(_, _, _, s) => s,
-            Self::Invalid => unreachable!(),
+            Self::Invalid(s) => s,
         }
     }
 }

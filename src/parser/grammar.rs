@@ -161,7 +161,7 @@ fn unspecified_syntax_error(input: ParserState) -> ParseResult<Rc<Statement>> {
     .map(move |t| {
         let error = Error::with_underline(t.span(), "invalid syntax");
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(t.span()))
     })
     .parse(input)
 }
@@ -546,7 +546,7 @@ fn import_from(input: ParserState) -> ParseResult<Rc<Statement>> {
     .map(|((rel_level, path), items)| {
         let (items, span) = match items.as_ref() {
             Expression::ImportItems(items, span) => (items, span),
-            _ => return Rc::new(Statement::Invalid),
+            _ => return Rc::new(Statement::Invalid(path.span().till(&items))),
         };
         Rc::new(Statement::Import(
             vec![Import {
@@ -688,7 +688,7 @@ fn class_def_raw(input: ParserState) -> ParseResult<Rc<Statement>> {
                 Some(ancestors) => match ancestors.as_deref() {
                     Some(Expression::Arguments(args, _)) => args.clone(),
                     None => Arguments::empty(),
-                    _ => return Rc::new(Statement::Invalid),
+                    _ => return Rc::new(Statement::Invalid(span)),
                 },
                 None => Arguments::empty(),
             };
@@ -752,7 +752,7 @@ fn function_def_raw(input: ParserState) -> ParseResult<Rc<Statement>> {
             let parameters = match p.as_deref() {
                 Some(Expression::Parameters(p, _)) => p.clone(),
                 None => vec![],
-                Some(_) => return Rc::new(Statement::Invalid),
+                Some(_) => return Rc::new(Statement::Invalid(span)),
             };
             Rc::new(Statement::FunctionDeclaration(
                 FunctionDeclaration {
@@ -3994,7 +3994,7 @@ fn invalid_assignment(input: ParserState) -> ParseResult<Rc<Statement>> {
         .map(move |a| {
             let error = Error::with_underline(a.span(), "only single targets can be annotated");
             input.report_error(error);
-            Rc::new(Statement::Invalid)
+            Rc::new(Statement::Invalid(a.span()))
         })
         .or(left(
             star_named_expression,
@@ -4007,13 +4007,13 @@ fn invalid_assignment(input: ParserState) -> ParseResult<Rc<Statement>> {
             let error =
                 Error::with_underline(a.span(), "only single target (not tuple) can be annotated");
             input.report_error(error);
-            Rc::new(Statement::Invalid)
+            Rc::new(Statement::Invalid(a.span()))
         }))
         .or(
             left(expression, pair(tok(TT::COLON), expression)).map(move |a| {
                 let error = Error::with_underline(a.span(), "illegal target for annotation");
                 input.report_error(error);
-                Rc::new(Statement::Invalid)
+                Rc::new(Statement::Invalid(a.span()))
             }),
         )
         .or(right(
@@ -4023,7 +4023,7 @@ fn invalid_assignment(input: ParserState) -> ParseResult<Rc<Statement>> {
         .map(move |a| {
             let error = Error::with_underline(a.span(), "invalid target"); // FIXME: Message
             input.report_error(error);
-            Rc::new(Statement::Invalid)
+            Rc::new(Statement::Invalid(a.span()))
         }))
         .or(right(
             zero_or_more(pair(star_targets, tok(TT::EQUAL))),
@@ -4033,7 +4033,7 @@ fn invalid_assignment(input: ParserState) -> ParseResult<Rc<Statement>> {
             let error =
                 Error::with_underline(a.span(), "assignment to yield expression not possible");
             input.report_error(error);
-            Rc::new(Statement::Invalid)
+            Rc::new(Statement::Invalid(a.span()))
         }))
         .or(left(
             star_expressions,
@@ -4048,7 +4048,7 @@ fn invalid_assignment(input: ParserState) -> ParseResult<Rc<Statement>> {
                 "this is an illegal expression for augmented assignment",
             );
             input.report_error(error);
-            Rc::new(Statement::Invalid)
+            Rc::new(Statement::Invalid(a.span()))
         }))
         .parse(input)
 }
@@ -4077,7 +4077,7 @@ fn invalid_del_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
                 "invalid del target", // FIXME: Message
             );
             input.report_error(error);
-            Rc::new(Statement::Invalid)
+            Rc::new(Statement::Invalid(a.span()))
         })
         .parse(input)
 }
@@ -4089,7 +4089,7 @@ fn invalid_block(input: ParserState) -> ParseResult<Block> {
         .map(move |t| {
             let error = Error::starting_from(t.span, "expected an indented block");
             input.report_error(error);
-            vec![Rc::new(Statement::Invalid)]
+            vec![Rc::new(Statement::Invalid(t.span))]
         })
         .parse(input)
 }
@@ -4596,7 +4596,7 @@ fn invalid_for_target(input: ParserState) -> ParseResult<Rc<Statement>> {
     .map(move |t| {
         let error = Error::starting_from(t.span(), "invalid for-targets"); // FIXME: appropriate message
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(t.span()))
     })
     .parse(input)
 }
@@ -4646,7 +4646,7 @@ fn invalid_import(input: ParserState) -> ParseResult<Rc<Statement>> {
             "Did you mean to use 'from ... import ...' instead?",
         );
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(a.span()))
     })
     .parse(input)
 }
@@ -4678,13 +4678,13 @@ fn invalid_compound_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
     .map(move |t| {
         let error = Error::starting_from(t.span, "'elif' must match an if-statement here");
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(t.span))
     })
     .or(
         left(token_nodiscard(TT::KEYWORD, "else"), tok(TT::COLON)).map(move |t| {
             let error = Error::starting_from(t.span, "'else' must match a valid statement here");
             input.report_error(error);
-            Rc::new(Statement::Invalid)
+            Rc::new(Statement::Invalid(t.span))
         }),
     )
     .parse(input)
@@ -4726,7 +4726,7 @@ fn invalid_with_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
     .map(move |t| {
         let error = Error::starting_from(t.span, "expected ':'");
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(t.span))
     })
     .parse(input)
 }
@@ -4772,7 +4772,7 @@ fn invalid_with_stmt_indent(input: ParserState) -> ParseResult<Rc<Statement>> {
             "expected an indented block after 'with' statement on line",
         );
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(t.span))
     })
     .parse(input)
 }
@@ -4796,7 +4796,7 @@ fn invalid_try_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
             "expected an indented block after 'try' statement on line",
         );
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(a.span()))
     })
     .or(left(
         left(token_nodiscard(TT::KEYWORD, "try"), tok(TT::COLON)),
@@ -4811,7 +4811,7 @@ fn invalid_try_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
             "expected 'except' or 'finally' block in try statement beginning on line",
         );
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(a.span()))
     }))
     .or(right(
         left(token(TT::KEYWORD, "try"), tok(TT::COLON)),
@@ -4835,7 +4835,7 @@ fn invalid_try_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
                 "cannot have both 'except' and 'except*' on the same 'try'",
             );
             input.report_error(error);
-            Rc::new(Statement::Invalid)
+            Rc::new(Statement::Invalid(a.span().till(&b)))
         }),
     ))
     .or(right(
@@ -4860,7 +4860,7 @@ fn invalid_try_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
             "cannot have both 'except' and 'except*' on the same 'try'",
         );
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(a.span()))
     }))
     .parse(input)
 }
@@ -4942,7 +4942,7 @@ fn invalid_finally_stmt(input: ParserState) -> ParseResult<Block> {
             "expected an indented block after 'finally' statement on line ",
         );
         input.report_error(error);
-        vec![Rc::new(Statement::Invalid)]
+        vec![Rc::new(Statement::Invalid(a.span()))]
     })
     .parse(input)
 }
@@ -5025,7 +5025,7 @@ fn invalid_match_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
             "expected an indented block after 'match' statement on line ",
         );
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(a.span()))
     })
     .parse(input)
 }
@@ -5136,7 +5136,7 @@ fn missing_block_or_colon_on_keyword_named_expr<'a>(
     .map(move |t| {
         let error = Error::starting_from(t.span(), "expected ':'");
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(t.span()))
     })
     .or(left(
         left(
@@ -5154,7 +5154,7 @@ fn missing_block_or_colon_on_keyword_named_expr<'a>(
             ),
         );
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(t.span))
     }))
 }
 
@@ -5178,7 +5178,7 @@ fn invalid_elif_stmt(
             (
                 vec![(
                     Rc::new(Expression::Invalid(s.span())),
-                    vec![Rc::new(Statement::Invalid)],
+                    vec![Rc::new(Statement::Invalid(s.span()))],
                 )],
                 None,
             )
@@ -5224,7 +5224,7 @@ fn invalid_for_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
     .map(move |t| {
         let error = Error::starting_from(t.span, "expected ':'");
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(t.span))
     })
     .or(left(
         left(
@@ -5248,7 +5248,7 @@ fn invalid_for_stmt(input: ParserState) -> ParseResult<Rc<Statement>> {
             "expected an indented block after 'for' statement on line",
         );
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(t.span))
     }))
     .parse(input)
 }
@@ -5279,7 +5279,7 @@ fn invalid_def_raw(input: ParserState) -> ParseResult<Rc<Statement>> {
             "expected an indented block after function definition on line ",
         );
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(a.span()))
     })
     .parse(input)
 }
@@ -5302,7 +5302,7 @@ fn invalid_class_def_raw(input: ParserState) -> ParseResult<Rc<Statement>> {
     .map(move |t| {
         let error = Error::starting_from(t.span, "expected ':'");
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(t.span))
     })
     .or(left(
         left(
@@ -5323,7 +5323,7 @@ fn invalid_class_def_raw(input: ParserState) -> ParseResult<Rc<Statement>> {
             "expected an indented block after 'class' definition on line",
         );
         input.report_error(error);
-        Rc::new(Statement::Invalid)
+        Rc::new(Statement::Invalid(t.span))
     }))
     .parse(input)
 }

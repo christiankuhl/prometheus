@@ -63,7 +63,7 @@ pub enum Statement {
     Raise(Option<Rc<Expression>>, Option<Rc<Expression>>, Span),
     Match(Vec<Rc<Expression>>, Vec<Rc<Expression>>, Span),
     Type(Name, Vec<Rc<Expression>>, Rc<Expression>, Span),
-    Invalid,
+    Invalid(Span),
 }
 
 #[derive(Clone)]

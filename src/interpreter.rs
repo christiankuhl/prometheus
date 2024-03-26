@@ -91,7 +91,7 @@ pub fn evaluate(statement: &Statement) -> FlowControl {
         Statement::Raise(expr, from_expr, _) => todo!(),
         Statement::Match(expr, cases, _) => todo!(),
         Statement::Type(name, type_params, expr, _) => todo!(),
-        Statement::Invalid => unreachable!(),
+        Statement::Invalid(_) => unreachable!(),
     }
 }
 
