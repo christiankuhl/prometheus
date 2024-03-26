@@ -29,7 +29,7 @@ fn assert_raises_error(input: &str, msg: &str) {
     match result {
         Ok((_, ref errors)) => {
             let err = errors.first().unwrap();
-            assert_eq!(msg, err.1.as_str());
+            assert!(msg == err.1.as_str(), "Unexpected error message when parsing\n{}\nExpected error message '{}', got '{}'", input, msg, err.1.as_str());
         }
         _ => unreachable!(),
     }
@@ -48,15 +48,26 @@ fn test_yield_statement() {
     parse_tree_matches("def f(): (yield 1)*2", "Yield");
     parse_tree_matches("def f(): return; yield 1", "Yield");
     parse_tree_matches("def f(): yield 1; return", "Yield");
-    parse_tree_matches("def f(): yield from 1", "Yield");
-    parse_tree_matches("def f(): x = yield from 1", "Yield");
-    parse_tree_matches("def f(): f((yield from 1))", "Yield");
+    parse_tree_matches("def f(): yield from 1", "YieldFrom");
+    parse_tree_matches("def f(): x = yield from 1", "YieldFrom");
+    parse_tree_matches("def f(): f((yield from 1))", "YieldFrom");
     parse_tree_matches("def f(): yield 1; return 1", "Yield");
     parse_tree_matches(
         "def f():\n    for x in range(30):\n        yield x\n",
         "Yield",
     );
     parse_tree_matches("def f():\n    if (yield):\n        yield x\n", "Yield");
+    assert_raises_error("def g(): yield from (), 1", "invalid syntax");
+    assert_raises_error("def g(): x= yield from (), 1", "invalid syntax");
+    parse_tree_matches("def g(): 1, (yield 1)", "Yield");
+    parse_tree_matches("def g(): 1, (yield from ())", "YieldFrom");
+    assert_raises_error("def g(): 1, yield 1", "invalid syntax");
+    assert_raises_error("def g(): 1, yield from ()", "invalid syntax");
+    parse_tree_matches("def g(): rest = 4, 5, 6; yield 1, 2, 3, *rest", "Yield");
+    assert_raises_error("def g(): f(yield 1)", "invalid syntax");
+    assert_raises_error("def g(): f(yield 1, 1)", "invalid syntax");
+    assert_raises_error("def g(): f(yield from ())", "invalid syntax");
+    assert_raises_error("def g(): f(yield from (), 1)", "invalid syntax");
 }
 
 #[test]
@@ -211,6 +222,13 @@ fn test_var_annot() {
     );
     assert_raises_error("[0]: int", "only single targets can be annotated");
     assert_raises_error("f(): int", "illegal target for annotation");
+    assert_raises_error("def f: int", "invalid syntax");
+    assert_raises_error("x: int: str", "invalid syntax");
+    assert_raises_error("def f():\n    nonlocal x: int\n", "invalid syntax");
+    assert_raises_error("[x, 0]: int\n", "only single targets can be annotated");
+    assert_raises_error("f(): int\n", "illegal target for annotation");
+    assert_raises_error("(x,): int", "only single targets can be annotated");
+    assert_raises_error("def f():\n    (x, y): int = (1, 2)\n", "only single targets can be annotated");
 }
 
 #[test]
