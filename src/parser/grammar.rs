@@ -5128,7 +5128,7 @@ fn invalid_class_argument_pattern(input: ParserState) -> ParseResult<Rc<Expressi
 fn missing_block_or_colon_on_keyword_named_expr<'a>(
     input: ParserState<'a>,
     keyword: &'static str,
-) -> BoxedParser<'a, Rc<Statement>> {
+) -> impl Parser<'a, Rc<Statement>> {
     left(
         right(token(TT::KEYWORD, keyword), named_expression),
         tok(TT::NEWLINE),

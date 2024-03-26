@@ -1,4 +1,5 @@
 #![allow(unused_variables, dead_code)]
+#![recursion_limit = "1024"]
 
 mod parser;
 pub use parser::tokenizer::{tokenize_file, LexerState, Tokenizer};

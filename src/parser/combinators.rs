@@ -115,48 +115,46 @@ impl<'a, T> ParseResult<'a, T> {
 pub(super) trait Parser<'a, Output> {
     fn parse(&self, input: ParserState<'a>) -> ParseResult<'a, Output>;
     #[inline]
-    fn map<F, MappedOutput>(self, map_fn: F) -> BoxedParser<'a, MappedOutput>
+    fn map<F, MappedOutput>(self, map_fn: F) -> impl Parser<'a, MappedOutput>
     where
         Self: Sized + 'a,
         Output: 'a,
-        MappedOutput: 'a,
-        F: Fn(Output) -> MappedOutput + 'a,
+        F: Fn(Output) -> MappedOutput,
     {
-        BoxedParser::new(map(self, map_fn))
+        map(self, map_fn)
     }
     #[inline]
-    fn pred<F>(self, predicate: F) -> BoxedParser<'a, Output>
+    fn pred<F>(self, predicate: F) -> impl Parser<'a, Output>
     where
         Self: Sized + 'a,
         Output: 'a,
-        F: Fn(&Output) -> bool + 'a,
+        F: Fn(&Output) -> bool,
     {
-        BoxedParser::new(pred(self, predicate))
+        pred(self, predicate)
     }
     #[inline]
-    fn discard(self) -> BoxedParser<'a, ()>
+    fn discard(self) -> impl Parser<'a, ()>
     where
         Self: Sized + 'a,
         Output: 'a,
     {
-        BoxedParser::new(map(self, |_| ()))
+        map(self, |_| ())
     }
     #[inline]
-    fn or(self, parser: impl Parser<'a, Output> + 'a) -> BoxedParser<'a, Output>
+    fn or(self, parser: impl Parser<'a, Output> + 'a) -> impl Parser<'a, Output>
     where
         Self: Sized + 'a,
         Output: 'a,
     {
-        let alternative = move |input| self.parse(input).or_else(|| parser.parse(input));
-        BoxedParser::new(alternative)
+        move |input| self.parse(input).or_else(|| parser.parse(input))
     }
-    fn expect<F>(self, error_fn: F) -> BoxedParser<'a, Output>
+    fn expect<F>(self, error_fn: F) -> impl Parser<'a, Output>
     where
         Self: Sized + 'a,
         Output: 'a,
         F: Fn() + 'a,
     {
-        BoxedParser::new(map_err(self, error_fn))
+        map_err(self, error_fn)
     }
 }
 
@@ -201,26 +199,6 @@ fn pause() {
     write!(stdout, "").unwrap();
     stdout.flush().unwrap();
     let _ = stdin.read(&mut [0u8]).unwrap();
-}
-
-pub(super) struct BoxedParser<'a, Output> {
-    parser: Box<dyn Parser<'a, Output> + 'a>,
-}
-
-impl<'a, Output> BoxedParser<'a, Output> {
-    #[inline]
-    fn new(parser: impl Parser<'a, Output> + 'a) -> Self {
-        Self {
-            parser: Box::new(parser),
-        }
-    }
-}
-
-impl<'a, Output> Parser<'a, Output> for BoxedParser<'a, Output> {
-    #[inline]
-    fn parse(&self, input: ParserState<'a>) -> ParseResult<'a, Output> {
-        self.parser.parse(input)
-    }
 }
 
 #[inline]
