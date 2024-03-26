@@ -29,7 +29,13 @@ fn assert_raises_error(input: &str, msg: &str) {
     match result {
         Ok((_, ref errors)) => {
             let err = errors.first().unwrap();
-            assert!(msg == err.1.as_str(), "Unexpected error message when parsing\n{}\nExpected error message '{}', got '{}'", input, msg, err.1.as_str());
+            assert!(
+                msg == err.1.as_str(),
+                "Unexpected error message when parsing\n{}\nExpected error message '{}', got '{}'",
+                input,
+                msg,
+                err.1.as_str()
+            );
         }
         _ => unreachable!(),
     }
@@ -91,8 +97,14 @@ fn test_async_with_statement() {
 
 #[test]
 fn test_generator_expr_argument() {
-    parse_tree_matches("print(foo for foo in foobar)", "Expressions([Call(Name(\"print\"");
-    parse_tree_matches("print(foo for foo in foobar)", "Arguments { positional: [Generator(Name(\"foo\"");
+    parse_tree_matches(
+        "print(foo for foo in foobar)",
+        "Expressions([Call(Name(\"print\"",
+    );
+    parse_tree_matches(
+        "print(foo for foo in foobar)",
+        "Arguments { positional: [Generator(Name(\"foo\"",
+    );
     parse_tree_matches("foo(x for x in range(10))", "Call(Name(\"foo\"");
     parse_tree_matches("foo(x for x in range(10))", "Generator(Name(\"x\"");
 }
@@ -228,7 +240,10 @@ fn test_var_annot() {
     assert_raises_error("[x, 0]: int\n", "only single targets can be annotated");
     assert_raises_error("f(): int\n", "illegal target for annotation");
     assert_raises_error("(x,): int", "only single targets can be annotated");
-    assert_raises_error("def f():\n    (x, y): int = (1, 2)\n", "only single targets can be annotated");
+    assert_raises_error(
+        "def f():\n    (x, y): int = (1, 2)\n",
+        "only single targets can be annotated",
+    );
 }
 
 #[test]
